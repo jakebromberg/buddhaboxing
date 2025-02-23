@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    #table {
+      width: 800px;
+      height: 500px;
+      border: 2px solid black;
+      margin: 20px auto;
+      position: relative;
+    }
+    .box {
+      width: 100px;
+      height: 100px;
+      background-color: #ccc;
+      position: absolute;
+      cursor: move;
+      touch-action: none; /* for pointer events */
+    }
+  </style>
+</head>
+<body>
+
+<div id="table"></div>
+
+<script>
+  // 1. Audio Context
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // 2. Load/Decode Audio
+  let audioBuffer;
+  fetch('buddha machine01.m4a')
+    .then(response => response.arrayBuffer())
+    .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
+    .then(decodedData => {
+      audioBuffer = decodedData;
+    });
+
+  // 3. Create a box dynamically
+  const table = document.getElementById('table');
+  const box = document.createElement('div');
+  box.classList.add('box');
+  table.appendChild(box);
+
+  // 4. Setup audio nodes for this box
+  let sourceNode = null;
+  let gainNode = audioCtx.createGain();
+  gainNode.gain.value = 0; // start muted
+  gainNode.connect(audioCtx.destination);
+
+  function startAudio() {
+    // Ensure we have a user gesture & audioCtx is resumed
+    audioCtx.resume().then(() => {
+      if (!sourceNode) {
+        sourceNode = audioCtx.createBufferSource();
+        sourceNode.buffer = audioBuffer;
+        sourceNode.loop = true;
+
+        // Pitch control
+        sourceNode.playbackRate.value = 1.0;
+
+        // Connect
+        sourceNode.connect(gainNode);
+
+        sourceNode.start(0);
+      }
+      // Fade in
+      gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+      gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(1.0, audioCtx.currentTime + 0.5);
+    });
+  }
+
+  function stopAudio() {
+    // Fade out
+    gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+    gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+
+    // Stop source after fade
+    setTimeout(() => {
+      if (sourceNode) {
+        sourceNode.stop();
+        sourceNode.disconnect();
+        sourceNode = null;
+      }
+    }, 600); // slightly more than 0.5s
+  }
+
+  // 5. Drag logic
+  let isDragging = false;
+  let offsetX, offsetY;
+
+  box.addEventListener('pointerdown', (e) => {
+    isDragging = true;
+    offsetX = e.clientX - box.offsetLeft;
+    offsetY = e.clientY - box.offsetTop;
+    box.setPointerCapture(e.pointerId);
+  });
+
+  box.addEventListener('pointermove', (e) => {
+    if (isDragging) {
+      box.style.left = (e.clientX - offsetX) + 'px';
+      box.style.top = (e.clientY - offsetY) + 'px';
+    }
+  });
+
+  box.addEventListener('pointerup', (e) => {
+    isDragging = false;
+    box.releasePointerCapture(e.pointerId);
+
+    // Check if box is within the table boundaries
+    const tableRect = table.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
+
+    const insideTable = (
+      boxRect.left >= tableRect.left &&
+      boxRect.right <= tableRect.right &&
+      boxRect.top >= tableRect.top &&
+      boxRect.bottom <= tableRect.bottom
+    );
+
+    if (insideTable) {
+      // Start or maintain audio
+      startAudio();
+    } else {
+      // Stop or fade out audio
+      stopAudio();
+    }
+  });
+</script>
+
+</body>
+</html>
