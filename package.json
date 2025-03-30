@@ -1,0 +1,27 @@
+{
+  "name": "buddha-boxing",
+  "version": "0.1.0",
+  "description": "Sound palette",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/jakebromberg/buddhaboxing.git"
+  },
+  "author": "Left of Age",
+  "license": "ACSL",
+  "homepage": "https://github.com/jakebromberg/buddhaboxing",
+  "dependencies": {
+    "express": "^4.17.1",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.4"
+  },
+  "keywords": [],
+  "bugs": {
+    "url": "https://github.com/jakebromberg/buddhaboxing/issues"
+  }
+}
