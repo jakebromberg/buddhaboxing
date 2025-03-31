@@ -13,6 +13,10 @@ app.use(express.static('public'));
 // e.g., { sessionId: { boxes: [...], etc. } }
 const sessions = {};
 
+app.get('/', function(req, res) {
+  res.sendFile(path.join(__dirname, 'public', 'buddhaboxing.html'));
+});
+
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
 
