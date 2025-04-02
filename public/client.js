@@ -25,36 +25,46 @@ function safariAudioUnlock() {
   console.log("Applying Safari-specific audio unlock");
   
   return new Promise((resolve) => {
-    // Create and play a silent audio element
-    const silentSound = new Audio();
-    silentSound.src = "data:audio/mp3;base64,SUQzBAAAAAABEUgAEgAAABgAIABDAFMAVABOAAAAABJURVgAAAAMAEQAYQBwAHMAMQAyADQAVElUMgAAABcAUwBpAGwAZQBuAHQAIABTAG8AdQBuAGQATEVOQwAAABcAMgAwADIAMgAtADAANAAtADIAMQAgADAAOQA6ADQANAA6ADEANwBUQUxCAAAAFQBTAGkAbABlAG4AdAAgAFMAbwB1AG4AZABUQ09OAAAAFQBTAGkAbABlAG4AdAAgAFMAbwB1AG4AZABUUEUBAAAAFQBDAG8AbgB2AGUAcgB0AC4AYwBvAG0AAAAAAP/7kGQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEluZm8AAAAHAAAAIgAAIqIABwcHDw8PFxcXHx8fJycnLy8vNzc3Pz8/R0dHT09PV1dXX19fZ2dnb29vd3d3f39/h4eHj4+Pl5eXn5+fp6env7+/x8fHz8/P19fX39/f5+fn7+/v9/f3//8AAAA5TEFNRTMuMTAwAc0AAAAAAAAAABSAJAWUQQABmgAAIqJPy2MDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//uQZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAAD6ADNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3///////////////////////////////////////////8AAAA8TEFNRTMuMTAwA80AAAAAAAAAABQgCQs5DgAAgAAAB+gdvz6kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
-    
-    // Must be played as a result of a user gesture
-    // Use our existing handler
-    const playPromise = silentSound.play();
-    
-    // Different browsers handle play() differently
-    if (playPromise !== undefined) {
-      playPromise
-        .then(() => {
-          console.log("Safari silent audio played successfully");
-          // Small delay before resolving to ensure audio system is ready
-          setTimeout(() => {
-            resolve();
-          }, 100);
-        })
-        .catch(error => {
-          // Only log if it's not a NotAllowedError (which is expected in Safari)
-          if (error.name !== 'NotAllowedError') {
-            console.warn("Safari silent audio failed to play:", error);
-          }
-          // Still resolve to continue with the app
-          resolve();
-        });
-    } else {
-      // Older browsers don't return a promise
-      setTimeout(resolve, 100);
+    // Ensure audio context is properly initialized
+    if (!audioCtx) {
+      console.log("Creating new audio context");
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
+
+    // Create a silent oscillator instead of using an MP3 file
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    
+    // Configure for silence
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 1; // Ultra low frequency
+    gainNode.gain.value = 0; // Zero gain
+    
+    // Connect nodes
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    // Start the oscillator
+    oscillator.start(0);
+    
+    // Stop after a very short time
+    setTimeout(() => {
+      oscillator.stop();
+      oscillator.disconnect();
+      gainNode.disconnect();
+      
+      // Try to resume the audio context
+      console.log("Attempting to resume audio context");
+      audioCtx.resume()
+        .then(() => {
+          console.log("Audio context resumed successfully");
+          resolve();
+        })
+        .catch(e => {
+          console.warn("Failed to resume audio context:", e);
+          resolve(); // Still resolve to continue with the app
+        });
+    }, 100);
   });
 }
 
@@ -70,90 +80,83 @@ async function ensureInitialized() {
 
   return new Promise((resolve) => {
     // Wait for audio context to be ready
-    const audioContextReady = new Promise((audioResolve) => {
+    const audioContextReady = new Promise((resolveAudio) => {
       if (audioCtx.state === 'running') {
-        audioResolve();
+        resolveAudio();
       } else {
         const resumeAudio = () => {
-          audioCtx.resume().then(() => {
-            console.log('Audio context resumed');
-            audioResolve();
-          }).catch(e => {
-            console.warn('Audio context resume failed:', e);
-            audioResolve(); // Still resolve to continue
-          });
+          // For Safari, try the special unlock first
+          if (isSafari) {
+            console.log('Safari detected, attempting special unlock');
+            safariAudioUnlock()
+              .then(() => {
+                console.log('Safari unlock completed, resuming context');
+                return audioCtx.resume();
+              })
+              .then(() => {
+                console.log('Audio context resumed after Safari unlock');
+                // Add a small delay for Safari to ensure context is fully ready
+                setTimeout(() => {
+                  resolveAudio();
+                }, 100);
+              })
+              .catch(e => {
+                console.log('Safari unlock failed, trying direct resume');
+                audioCtx.resume()
+                  .then(() => {
+                    console.log('Audio context resumed directly');
+                    // Add a small delay for Safari to ensure context is fully ready
+                    setTimeout(() => {
+                      resolveAudio();
+                    }, 100);
+                  })
+                  .catch(e => {
+                    console.warn('Audio context resume failed:', e);
+                    resolveAudio(); // Still resolve to continue
+                  });
+              });
+          } else {
+            // For other browsers, try direct resume
+            audioCtx.resume()
+              .then(() => {
+                console.log('Audio context resumed');
+                resolveAudio();
+              })
+              .catch(e => {
+                console.warn('Audio context resume failed:', e);
+                resolveAudio(); // Still resolve to continue
+              });
+          }
         };
 
-        // Try to resume on first user interaction
+        // Try to resume on any user interaction
         const handleInteraction = () => {
           console.log('User interaction detected, attempting to resume audio context');
           resumeAudio();
-          document.removeEventListener('click', handleInteraction);
-          document.removeEventListener('touchstart', handleInteraction);
         };
 
+        // Add listeners for various user interactions
         document.addEventListener('click', handleInteraction);
         document.addEventListener('touchstart', handleInteraction);
+        document.addEventListener('mousedown', handleInteraction);
+        document.addEventListener('keydown', handleInteraction);
       }
     });
 
-    // Wait for audio files to be loaded
-    const audioFilesReady = new Promise((filesResolve) => {
-      const checkFiles = () => {
-        const allLoaded = window.audioLoadStatus && 
-          window.audioLoadStatus.every(status => status === 'loaded' || status === 'basic-ready');
-        
-        if (allLoaded) {
-          console.log('All audio files loaded');
-          filesResolve();
-        } else {
-          setTimeout(checkFiles, 100);
-        }
-      };
-      checkFiles();
-    });
-
-    // Wait for both audio context and files
-    Promise.all([audioContextReady, audioFilesReady]).then(() => {
-      console.log('All components initialized');
+    // We don't wait for all files anymore, just the audio context
+    audioContextReady.then(() => {
+      console.log('Audio context initialized');
       isInitialized = true;
       resolve();
     });
   });
 }
 
-// Add click handler to unlock audio context
-document.addEventListener('click', () => {
-  if (audioCtx.state === 'suspended') {
-    console.log('Unlocking audio context on first click');
-    audioCtx.resume().then(() => {
-      console.log('Audio context unlocked on click');
-    }).catch(e => {
-      console.warn('Failed to unlock audio context:', e);
-    });
-  }
-}, { once: true });
-
-// Function to ensure audio context is initialized and unlocked
-function ensureAudioContextInitialized() {
-  return new Promise((resolve) => {
-    if (audioCtx.state === 'running') {
-      console.log('Audio context already running');
-      resolve();
-      return;
-    }
-
-    console.log('Resuming audio context');
-    audioCtx.resume()
-      .then(() => {
-        console.log('Audio context resumed');
-        resolve();
-      })
-      .catch(e => {
-        console.warn('Audio context resume failed:', e);
-        resolve(); // Still resolve to continue
-      });
-  });
+// Function to check if a specific audio file is ready
+function isAudioFileReady(index) {
+  return window.audioLoadStatus && 
+    (window.audioLoadStatus[index] === 'loaded' || 
+     window.audioLoadStatus[index] === 'basic-ready');
 }
 
 // Connect to Socket.IO
@@ -1054,19 +1057,29 @@ function checkBoxPosition(box, boxId) {
     boxPosition: { left: boxRect.left, top: boxRect.top },
     tableBounds: { left: tableRect.left, top: tableRect.top },
     isPlaying: box.isPlaying,
-    audioContextState: audioCtx.state
+    audioContextState: audioCtx.state,
+    hasEffectNode: !!box.effectNode,
+    timestamp: new Date().toISOString()
   });
   
   // Start or stop audio based on position
   if (insideTable) {
     if (box.startAudio) {
-      console.log(`Starting audio for box ${boxId + 1}`);
+      console.log(`Starting audio for box ${boxId + 1} - Current state:`, {
+        isPlaying: box.isPlaying,
+        audioContextState: audioCtx.state,
+        timestamp: new Date().toISOString()
+      });
       // Don't set isPlaying here - let startAudio handle it
       box.startAudio();
     }
   } else {
     if (box.stopAudio && box.isPlaying) {
-      console.log(`Stopping audio for box ${boxId + 1}`);
+      console.log(`Stopping audio for box ${boxId + 1} - Current state:`, {
+        isPlaying: box.isPlaying,
+        audioContextState: audioCtx.state,
+        timestamp: new Date().toISOString()
+      });
       box.stopAudio();
     }
   }
@@ -1242,23 +1255,93 @@ function createBox(index, table) {
       
       // Use debounced version for final position check
       debouncedCheckPosition(box, index);
+      
+      // If we dragged and the box is inside the table, try to initialize audio
+      if (hasDragged) {
+        const table = document.getElementById('table');
+        if (table) {
+          const tableRect = table.getBoundingClientRect();
+          const boxRect = box.getBoundingClientRect();
+          
+          const insideTable = (
+            boxRect.left >= tableRect.left &&
+            boxRect.right <= tableRect.right &&
+            boxRect.top >= tableRect.top &&
+            boxRect.bottom <= tableRect.bottom
+          );
+          
+          if (insideTable && isSafari && audioCtx.state === 'suspended') {
+            console.log('Box dragged into table in Safari, attempting audio unlock');
+            safariAudioUnlock()
+              .then(() => {
+                console.log('Safari unlock completed after drag');
+                return audioCtx.resume();
+              })
+              .then(() => {
+                console.log('Audio context resumed after drag');
+                // Start audio playback
+                if (box.startAudio) {
+                  box.startAudio();
+                }
+              })
+              .catch(e => {
+                console.warn('Failed to unlock audio after drag:', e);
+              });
+          }
+        }
+      }
     }
   });
   
   // Add click handler to expand/collapse box
   box.addEventListener('click', (e) => {
-    console.log('Click on box:', index + 1, 'hasDragged:', hasDragged);
-    
-    // Don't expand if we've dragged
-    if (hasDragged) {
-      console.log('Ignoring click after drag');
-      return;
-    }
+    console.log('Click on box:', index + 1, 'hasDragged:', hasDragged, 'Current state:', {
+      isPlaying: box.isPlaying,
+      audioContextState: audioCtx.state,
+      hasEffectNode: !!box.effectNode,
+      timestamp: new Date().toISOString()
+    });
     
     // Don't expand if clicking on controls
     if (e.target === effectSelect || e.target === mixSlider || e.target === volumeSlider) {
       console.log('Ignoring click on controls');
       return;
+    }
+    
+    // If we dragged and the box is inside the table, try to initialize audio
+    if (hasDragged) {
+      const table = document.getElementById('table');
+      if (table) {
+        const tableRect = table.getBoundingClientRect();
+        const boxRect = box.getBoundingClientRect();
+        
+        const insideTable = (
+          boxRect.left >= tableRect.left &&
+          boxRect.right <= tableRect.right &&
+          boxRect.top >= tableRect.top &&
+          boxRect.bottom <= tableRect.bottom
+        );
+        
+        if (insideTable && isSafari && audioCtx.state === 'suspended') {
+          console.log('Box clicked after drag in Safari, attempting audio unlock');
+          safariAudioUnlock()
+            .then(() => {
+              console.log('Safari unlock completed after click');
+              return audioCtx.resume();
+            })
+            .then(() => {
+              console.log('Audio context resumed after click');
+              // Start audio playback
+              if (box.startAudio) {
+                box.startAudio();
+              }
+            })
+            .catch(e => {
+              console.warn('Failed to unlock audio after click:', e);
+            });
+          return; // Don't expand the box in this case
+        }
+      }
     }
     
     // Toggle expanded state
@@ -1535,10 +1618,13 @@ function createBox(index, table) {
     e.stopPropagation();
   });
   
-  
-  // Modify startAudio function to use the global initialization
+  // Modify startAudio function to check individual file readiness
   function startAudio() {
-    console.log('startAudio called, checking audio context state:', audioCtx.state);
+    console.log('startAudio called, checking initialization - Current state:', {
+      isPlaying: box.isPlaying,
+      audioContextState: audioCtx.state,
+      timestamp: new Date().toISOString()
+    });
     
     // If already playing, don't start again
     if (box.isPlaying) {
@@ -1546,21 +1632,100 @@ function createBox(index, table) {
       return;
     }
 
-    // Use the global audio context initialization
-    ensureAudioContextInitialized().then(() => {
-      // Add a small delay to ensure everything is properly initialized
-      const delayMs = isSafari ? 200 : 50;
+    // For Safari, try to unlock audio context on box interaction
+    if (isSafari && audioCtx.state === 'suspended') {
+      console.log('Safari detected, attempting to unlock audio context - Current state:', {
+        audioContextState: audioCtx.state,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Create a promise chain for Safari unlock
+      const safariUnlockChain = safariAudioUnlock()
+        .then(() => {
+          console.log('Safari unlock completed, checking context state:', {
+            audioContextState: audioCtx.state,
+            timestamp: new Date().toISOString()
+          });
+          
+          // If context is still suspended, try direct resume
+          if (audioCtx.state === 'suspended') {
+            console.log('Context still suspended, trying direct resume');
+            return audioCtx.resume();
+          }
+        })
+        .then(() => {
+          console.log('Audio context state after unlock/resume:', {
+            audioContextState: audioCtx.state,
+            timestamp: new Date().toISOString()
+          });
+          
+          // Add a small delay to ensure the context is fully ready
+          return new Promise(resolve => setTimeout(resolve, 100));
+        })
+        .then(() => {
+          console.log('Audio context ready for playback:', {
+            audioContextState: audioCtx.state,
+            timestamp: new Date().toISOString()
+          });
+          startAudioPlayback();
+        })
+        .catch(e => {
+          console.warn('Failed to unlock audio context in Safari:', e);
+          // Still try to play even if unlock fails
+          startAudioPlayback();
+        });
+      
+      return;
+    }
+
+    // Check if this specific audio file is ready
+    if (!isAudioFileReady(index)) {
+      console.log(`Audio file ${index + 1} not ready yet, waiting... - Current state:`, {
+        audioLoadStatus: window.audioLoadStatus[index],
+        timestamp: new Date().toISOString()
+      });
+      // Wait for this specific file to be ready
+      const checkFile = () => {
+        if (isAudioFileReady(index)) {
+          console.log(`Audio file ${index + 1} is now ready, starting playback - Current state:`, {
+            audioLoadStatus: window.audioLoadStatus[index],
+            timestamp: new Date().toISOString()
+          });
+          startAudioPlayback();
+        } else {
+          setTimeout(checkFile, 100);
+        }
+      };
+      checkFile();
+      return;
+    }
+
+    startAudioPlayback();
+  }
+  
+  // Separate function for actual audio playback
+  function startAudioPlayback() {
+    // Ensure audio context is initialized
+    ensureInitialized().then(() => {
+      console.log('Starting audio after initialization - Current state:', {
+        audioContextState: audioCtx.state,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Add a longer delay for Safari to ensure everything is properly initialized
+      const delayMs = isSafari ? 300 : 50;
       
       setTimeout(() => {
         // Check if we have either basic audio or full audio buffer
         const hasBasicAudio = window.tempAudioElements && window.tempAudioElements[index];
         const hasFullAudio = audioBuffers[index];
         
-        console.log(`Box ${index + 1} audio state:`, {
+        console.log(`Box ${index + 1} audio state before playback:`, {
           hasBasicAudio,
           hasFullAudio,
           audioContextState: audioCtx.state,
-          sourceNode: !!sourceNode
+          sourceNode: !!sourceNode,
+          timestamp: new Date().toISOString()
         });
         
         if (!hasBasicAudio && !hasFullAudio) {
@@ -1591,7 +1756,10 @@ function createBox(index, table) {
         if (hasFullAudio) {
           if (!sourceNode) {
             try {
-              console.log(`Creating new source node for box ${index + 1}`);
+              console.log(`Creating new source node for box ${index + 1} - Current state:`, {
+                audioContextState: audioCtx.state,
+                timestamp: new Date().toISOString()
+              });
               sourceNode = audioCtx.createBufferSource();
               sourceNode.buffer = audioBuffers[index];
               sourceNode.loop = true;
@@ -1614,7 +1782,10 @@ function createBox(index, table) {
 
               // Set the gain based on the current slider value
               const volume = volumeSlider.value / 100;
-              console.log(`Setting volume to ${volume} for box ${index + 1}`);
+              console.log(`Setting volume to ${volume} for box ${index + 1} - Current state:`, {
+                audioContextState: audioCtx.state,
+                timestamp: new Date().toISOString()
+              });
               
               // Fade in
               gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
@@ -1622,9 +1793,32 @@ function createBox(index, table) {
               gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.5);
 
               try {
-                sourceNode.start(0);
-                console.log(`Started audio for box ${index + 1}`);
-                box.isPlaying = true;
+                // For Safari, ensure we're in a running state before starting
+                if (isSafari && audioCtx.state !== 'running') {
+                  console.log('Safari: Audio context not running, attempting to resume - Current state:', {
+                    audioContextState: audioCtx.state,
+                    timestamp: new Date().toISOString()
+                  });
+                  audioCtx.resume().then(() => {
+                    sourceNode.start(0);
+                    console.log(`Started audio for box ${index + 1} - Current state:`, {
+                      audioContextState: audioCtx.state,
+                      timestamp: new Date().toISOString()
+                    });
+                    box.isPlaying = true;
+                  }).catch(e => {
+                    console.error(`Error starting audio after resume for box ${index + 1}:`, e);
+                    sourceNode = null;
+                    box.isPlaying = false;
+                  });
+                } else {
+                  sourceNode.start(0);
+                  console.log(`Started audio for box ${index + 1} - Current state:`, {
+                    audioContextState: audioCtx.state,
+                    timestamp: new Date().toISOString()
+                  });
+                  box.isPlaying = true;
+                }
               } catch (e) {
                 console.error(`Error starting audio for box ${index + 1}:`, e);
                 sourceNode = null;
@@ -1638,11 +1832,17 @@ function createBox(index, table) {
           // Use basic audio element for playback
           const tempAudio = window.tempAudioElements[index];
           if (tempAudio && tempAudio.paused) {
-            console.log(`Starting basic audio playback for box ${index + 1}`);
+            console.log(`Starting basic audio playback for box ${index + 1} - Current state:`, {
+              audioContextState: audioCtx.state,
+              timestamp: new Date().toISOString()
+            });
             tempAudio.loop = true;
             tempAudio.volume = volumeSlider.value / 100;
             tempAudio.play().then(() => {
-              console.log(`Basic audio started for box ${index + 1}`);
+              console.log(`Basic audio started for box ${index + 1} - Current state:`, {
+                audioContextState: audioCtx.state,
+                timestamp: new Date().toISOString()
+              });
               box.isPlaying = true;
             }).catch(e => {
               console.error(`Error playing basic audio for box ${index + 1}:`, e);
@@ -1652,7 +1852,7 @@ function createBox(index, table) {
         }
       }, delayMs);
     }).catch(error => {
-      console.error('Error ensuring audio context is ready:', error);
+      console.error('Error during initialization:', error);
     });
   }
   
