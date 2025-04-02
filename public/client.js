@@ -14,6 +14,46 @@ if (urlParams.has('session')) {
   console.log('Generated new session ID:', sessionId);
 }
 
+// Safari detection
+const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+console.log(`Safari detected: ${isSafari}`);
+
+// Special audio unlock for Safari
+function safariAudioUnlock() {
+  if (!isSafari) return Promise.resolve();
+  
+  console.log("Applying Safari-specific audio unlock");
+  
+  return new Promise((resolve) => {
+    // Create and play a silent audio element
+    const silentSound = new Audio();
+    silentSound.src = "data:audio/mp3;base64,SUQzBAAAAAABEUgAEgAAABgAIABDAFMAVABOAAAAABJURVgAAAAMAEQAYQBwAHMAMQAyADQAVElUMgAAABcAUwBpAGwAZQBuAHQAIABTAG8AdQBuAGQATEVOQwAAABcAMgAwADIAMgAtADAANAAtADIAMQAgADAAOQA6ADQANAA6ADEANwBUQUxCAAAAFQBTAGkAbABlAG4AdAAgAFMAbwB1AG4AZABUQ09OAAAAFQBTAGkAbABlAG4AdAAgAFMAbwB1AG4AZABUUEUBAAAAFQBDAG8AbgB2AGUAcgB0AC4AYwBvAG0AAAAAAP/7kGQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEluZm8AAAAHAAAAIgAAIqIABwcHDw8PFxcXHx8fJycnLy8vNzc3Pz8/R0dHT09PV1dXX19fZ2dnb29vd3d3f39/h4eHj4+Pl5eXn5+fp6env7+/x8fHz8/P19fX39/f5+fn7+/v9/f3//8AAAA5TEFNRTMuMTAwAc0AAAAAAAAAABSAJAWUQQABmgAAIqJPy2MDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//uQZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAAD6ADNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3///////////////////////////////////////////8AAAA8TEFNRTMuMTAwA80AAAAAAAAAABQgCQs5DgAAgAAAB+gdvz6kAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV";
+    
+    // Must be played as a result of a user gesture
+    // Use our existing handler
+    const playPromise = silentSound.play();
+    
+    // Different browsers handle play() differently
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          console.log("Safari silent audio played successfully");
+          // Small delay before resolving to ensure audio system is ready
+          setTimeout(() => {
+            resolve();
+          }, 100);
+        })
+        .catch(error => {
+          console.warn("Safari silent audio failed to play:", error);
+          resolve(); // Still resolve to continue with the app
+        });
+    } else {
+      // Older browsers don't return a promise
+      setTimeout(resolve, 100);
+    }
+  });
+}
+
 // Connect to Socket.IO
 const socket = io();
 
@@ -570,66 +610,137 @@ const boxColors = [
 ];
 
 // 2. Load all audio files
-const audioFiles = ['01', '02', '03', '04', '05', '06', '07', '08', '09'];
+const audioFiles = ['01.m4a', '02.m4a', '03.m4a', '04.m4a', '05.m4a', '06.m4a', '07.m4a', '08.m4a', '09.m4a'];
 const audioBuffers = new Array(audioFiles.length);
 let loadedCount = 0;
 let boxesCreated = false; // Track if boxes have been created
 
-// Function to ensure the audio context is running
-function ensureAudioContext() {
-  if (audioCtx.state === 'suspended') {
-    console.log('Audio context is suspended, attempting to resume for decoding');
-    return audioCtx.resume();
-  }
-  return Promise.resolve();
-}
+// Add a new flag to track if effects are ready
+let effectsReady = false;
 
-// Add event listener to unlock audio on first user interaction
-document.addEventListener('click', function unlockAudio() {
-  console.log('User interaction detected, resuming audio context');
-  audioCtx.resume().then(() => {
-    console.log('Audio context resumed from user interaction');
-    // If boxes haven't been created yet and all audio is loaded, create them
-    if (!boxesCreated && loadedCount === audioFiles.length) {
-      createBoxes();
-      createSessionDisplay();
-      boxesCreated = true;
-    }
+// Create boxes immediately
+createBoxes();
+createSessionDisplay();
+boxesCreated = true;
+
+// Then start loading audio files
+function loadAudioFiles() {
+  console.log("Starting audio file loading process...");
+  
+  // Initialize load status tracking
+  window.audioLoadStatus = Array(audioFiles.length).fill('pending');
+  
+  // First, check which files exist
+  const checkPromises = audioFiles.map((url, index) => {
+    return fetch(`/loops/${url}`, { method: 'HEAD' })
+      .then(() => {
+        window.audioLoadStatus[index] = 'found';
+        return { url, index, exists: true };
+      })
+      .catch(() => {
+        window.audioLoadStatus[index] = 'not-found';
+        return { url, index, exists: false };
+      });
   });
-  // Only need this once
-  document.removeEventListener('click', unlockAudio);
-}, { once: true });
 
-audioFiles.forEach((file, index) => {
-  fetch(`loops/${file}.m4a`)
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP error loading audio file ${file}.m4a: ${response.status}`);
-      }
-      return response.arrayBuffer();
-    })
-    .then(arrayBuffer => {
-      console.log(`Decoding audio file ${file}.m4a (${arrayBuffer.byteLength} bytes)`);
-      return ensureAudioContext().then(() => audioCtx.decodeAudioData(arrayBuffer));
-    })
-    .then(decodedData => {
-      console.log(`Successfully decoded audio file ${file}.m4a`);
-      audioBuffers[index] = decodedData;
-      loadedCount++;
-      if (loadedCount === audioFiles.length) {
-        // Create boxes only if they haven't been created yet
-        if (!boxesCreated) {
-          createBoxes();
-          // Add session display
-          createSessionDisplay();
-          boxesCreated = true;
-        }
-      }
+  Promise.all(checkPromises)
+    .then(results => {
+      // Filter to only load files that exist
+      const filesToLoad = results.filter(r => r.exists);
+      
+      // Load files in parallel with a limit
+      const loadPromises = filesToLoad.map(({ url, index }) => {
+        return loadSingleAudioFile(url, index);
+      });
+
+      // Track loaded count to avoid stalling
+      let loadedCount = 0;
+      const maxLoadAttempts = 3;
+
+      return Promise.allSettled(loadPromises)
+        .then(() => {
+          console.log(`Successfully loaded ${loadedCount} audio files`);
+          console.log('Audio load status:', window.audioLoadStatus);
+        });
     })
     .catch(error => {
-      console.error(`Error loading audio file ${file}.m4a:`, error);
+      console.error('Error during audio loading:', error);
+      showAudioLoadingErrorMessage();
     });
-});
+}
+
+// Start loading audio files after a small delay to ensure UI is rendered
+setTimeout(loadAudioFiles, 100);
+
+// Modify loadSingleAudioFile to handle immediate playback
+function loadSingleAudioFile(url, index) {
+  return new Promise((resolve, reject) => {
+    // Initialize audio context if needed
+    if (!audioCtx) {
+      audioCtx = initAudioContext();
+    }
+
+    // Check if we're in debug mode
+    if (window.debugNoAudio) {
+      console.log(`Debug mode: Creating dummy buffer for ${url}`);
+      const dummyBuffer = audioCtx.createBuffer(2, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+      audioBuffers[index] = dummyBuffer;
+      window.audioLoadStatus[index] = 'loaded';
+      resolve();
+      return;
+    }
+
+    // First, load the raw audio for immediate playback
+    fetch(`/loops/${url}`)
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.arrayBuffer();
+      })
+      .then(arrayBuffer => {
+        // Create a temporary audio element for immediate playback
+        const tempAudio = new Audio();
+        tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
+        
+        // Store the temp audio for this box
+        window.tempAudioElements = window.tempAudioElements || {};
+        window.tempAudioElements[index] = tempAudio;
+        
+        // Update status to indicate basic playback is ready
+        window.audioLoadStatus[index] = 'basic-ready';
+        
+        // Now decode for effects in the background
+        audioCtx.decodeAudioData(
+          arrayBuffer,
+          (decodedData) => {
+            console.log(`Successfully decoded audio file ${url}`);
+            audioBuffers[index] = decodedData;
+            window.audioLoadStatus[index] = 'loaded';
+            
+            // If this is the last file to decode, mark effects as ready
+            const allLoaded = window.audioLoadStatus.every(status => status === 'loaded');
+            if (allLoaded) {
+              effectsReady = true;
+              console.log('All audio files decoded, effects are now available');
+            }
+            
+            resolve();
+          },
+          (err) => {
+            console.error(`Error decoding audio data for ${url}:`, err);
+            window.audioLoadStatus[index] = 'error';
+            reject(err);
+          }
+        );
+      })
+      .catch(error => {
+        console.error(`Error loading audio file ${url}:`, error);
+        window.audioLoadStatus[index] = 'error';
+        reject(error);
+      });
+  });
+}
 
 // Create session display
 function createSessionDisplay() {
@@ -1238,32 +1349,24 @@ function createBox(index, table) {
   
   // Effect selector event
   effectSelect.addEventListener('change', (e) => {
-    const effectName = e.target.value;
+    if (!effectsReady) {
+      alert('Audio effects are still being loaded. Please wait a moment and try again.');
+      effectSelect.value = 'none';
+      return;
+    }
     
-    // Clean up any previous effect first
+    // First make sure any previous effect is cleaned up
     cleanupEffect();
     
-    // Re-setup basic routing
+    // Ensure basic routing is set up
     setupAudioRouting();
     
-    // Adjust box size based on the selected effect
-    adjustBoxSize(effectName);
+    // Then set up the new effect
+    setupEffect(this.value);
     
-    // Add a small delay before creating the new effect
-    setTimeout(() => {
-      // Create the new effect
-      setupEffect(effectName);
-      
-      // Update the mix to match the slider
-      const mixValue = mixSlider.value / 100;
-      applyMix(mixValue);
-      
-      // Send update to server
-      sendBoxUpdate({ effect: effectName, mixValue });
-    }, 100);
-    
-    // Prevent the drag event
-    e.stopPropagation();
+    // Apply the current mix value
+    const mixValue = mixSlider.value / 100;
+    applyMix(mixValue);
   });
   
   // Mix control
@@ -1299,17 +1402,42 @@ function createBox(index, table) {
     e.stopPropagation();
   });
   
+  // Modify the startAudio function to handle both basic and effect-enabled playback
   function startAudio() {
+    // Make sure audio context exists
+    if (!audioCtx) {
+      audioCtx = initAudioContext();
+      // Initialize Tuna if needed
+      initTuna();
+    }
+    
     // Add user interaction check for Safari
     if (audioCtx.state === 'suspended') {
       console.log('Audio context is suspended, attempting to resume');
       
-      // Try a different approach for Safari - create a temp audio element and play it
-      const tempAudio = new Audio();
-      tempAudio.play().then(() => {
-        console.log('Temporary audio played to unlock context');
-        tempAudio.pause();
-      }).catch(e => console.log('Could not play temp audio:', e));
+      // For Safari specifically
+      if (isSafari) {
+        safariAudioUnlock().then(() => {
+          console.log("Safari-specific audio unlock completed");
+          return audioCtx.resume();
+        }).then(() => {
+          console.log("AudioContext resumed after Safari unlock");
+        }).catch(e => {
+          console.warn("Safari audio unlock error:", e);
+        });
+      } else {
+        // For other browsers
+        const tempAudio = new Audio();
+        tempAudio.play().then(() => {
+          console.log('Temporary audio played to unlock context');
+          tempAudio.pause();
+        }).catch(e => console.log('Could not play temp audio:', e));
+      }
+    }
+
+    // Track retry attempts to prevent endless loops
+    if (!box.retryCount) {
+      box.retryCount = 0;
     }
 
     // Ensure we have a user gesture & audioCtx is resumed
@@ -1317,51 +1445,119 @@ function createBox(index, table) {
       console.log('Audio context resumed successfully');
       
       // Add a small delay to ensure everything is properly initialized
+      // Safari needs a slightly longer delay
+      const delayMs = isSafari ? 200 : 50;
+      
       setTimeout(() => {
-        // Check if audio buffer is loaded
-        if (!audioBuffers[index]) {
-          console.error(`Audio buffer for box ${index + 1} is not loaded yet`);
-          // Try again in 500ms
-          setTimeout(() => startAudio(), 500);
+        // Check if we have either basic audio or full audio buffer
+        const hasBasicAudio = window.tempAudioElements && window.tempAudioElements[index];
+        const hasFullAudio = audioBuffers[index];
+        
+        if (!hasBasicAudio && !hasFullAudio) {
+          console.error(`No audio available for box ${index + 1}`);
+          box.style.border = '2px solid red';
+          box.style.backgroundColor = '#ffebee';
+          
+          // Add reload button if not already present
+          if (!box.querySelector('.reload-btn')) {
+            const reloadBtn = document.createElement('button');
+            reloadBtn.className = 'reload-btn';
+            reloadBtn.textContent = '↻';
+            reloadBtn.onclick = (e) => {
+              e.stopPropagation();
+              loadSingleAudioFile(audioFiles[index], index);
+            };
+            box.appendChild(reloadBtn);
+          }
+          
+          if (box.retryCount < 3) {
+            box.retryCount++;
+            setTimeout(() => startAudio(), 200);
+          }
           return;
         }
-      
-        if (!sourceNode) {
-          sourceNode = audioCtx.createBufferSource();
-          sourceNode.buffer = audioBuffers[index];
-          sourceNode.loop = true;
+        
+        // Remove error styling if we have audio
+        box.style.border = '';
+        const reloadBtn = box.querySelector('.reload-btn');
+        if (reloadBtn) box.removeChild(reloadBtn);
+        
+        // If we have full audio buffer, use Web Audio API
+        if (hasFullAudio) {
+          if (!sourceNode) {
+            try {
+              sourceNode = audioCtx.createBufferSource();
+              sourceNode.buffer = audioBuffers[index];
+              sourceNode.loop = true;
 
-          // Pitch control
-          sourceNode.playbackRate.value = 1.0;
+              // Pitch control
+              sourceNode.playbackRate.value = 1.0;
 
-          // Connect source to gain
-          sourceNode.connect(gainNode);
-          
-          // Setup initial effect if one is selected
-          if (effectSelect.value !== 'none') {
-            // First make sure any previous effect is cleaned up
-            cleanupEffect();
-            
-            // Ensure basic routing is set up
-            setupAudioRouting();
-            
-            // Then set up the new effect
-            setupEffect(effectSelect.value);
+              // Connect source to gain
+              sourceNode.connect(gainNode);
               
-            // Apply the current mix value
-            const mixValue = mixSlider.value / 100;
-            applyMix(mixValue);
-          }
+              // Setup initial effect if one is selected and effects are ready
+              if (effectsReady && effectSelect.value !== 'none') {
+                // First make sure any previous effect is cleaned up
+                cleanupEffect();
+                
+                // Ensure basic routing is set up
+                setupAudioRouting();
+                
+                // Then set up the new effect
+                setupEffect(effectSelect.value);
+                  
+                // Apply the current mix value
+                const mixValue = mixSlider.value / 100;
+                applyMix(mixValue);
+              }
 
-          try {
-            sourceNode.start(0);
-            console.log(`Started audio for box ${index + 1}`);
-          } catch (e) {
-            console.error(`Error starting audio for box ${index + 1}:`, e);
-            sourceNode = null;
-            // Try again after a short delay
-            setTimeout(() => startAudio(), 200);
-            return;
+              // Safari sometimes needs a small delay before starting
+              if (isSafari) {
+                setTimeout(() => {
+                  try {
+                    sourceNode.start(0);
+                    console.log(`Started audio for box ${index + 1} (Safari)`);
+                  } catch (e) {
+                    console.error(`Safari error starting audio for box ${index + 1}:`, e);
+                    sourceNode = null;
+                    if (box.retryCount < 3) {
+                      box.retryCount++;
+                      setTimeout(() => startAudio(), 300);
+                    }
+                  }
+                }, 100);
+              } else {
+                try {
+                  sourceNode.start(0);
+                  console.log(`Started audio for box ${index + 1}`);
+                } catch (e) {
+                  console.error(`Error starting audio for box ${index + 1}:`, e);
+                  sourceNode = null;
+                  if (box.retryCount < 3) {
+                    box.retryCount++;
+                    setTimeout(() => startAudio(), 200);
+                  }
+                  return;
+                }
+              }
+            } catch (e) {
+              console.error(`Error creating audio source for box ${index + 1}:`, e);
+              if (box.retryCount < 3) {
+                box.retryCount++;
+                setTimeout(() => startAudio(), 200);
+              }
+              return;
+            }
+          }
+        } else {
+          // Use basic audio element for playback
+          const tempAudio = window.tempAudioElements[index];
+          if (tempAudio && tempAudio.paused) {
+            tempAudio.loop = true;
+            tempAudio.play().catch(e => {
+              console.error(`Error playing basic audio for box ${index + 1}:`, e);
+            });
           }
         }
         
@@ -1371,11 +1567,14 @@ function createBox(index, table) {
         gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
         gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
         gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.5);
-      }, 50);
+      }, delayMs);
     }).catch(error => {
       console.error('Error resuming audio context:', error);
-      // Try again after a short delay
-      setTimeout(() => startAudio(), 200);
+      // Only retry if we haven't reached the limit
+      if (box.retryCount < 3) {
+        box.retryCount++;
+        setTimeout(() => startAudio(), 200);
+      }
     });
   }
   
@@ -1411,17 +1610,6 @@ document.addEventListener('click', (e) => {
     activeBoxForDebug = null;
   }
 });
-
-// Add a fallback mechanism to ensure boxes are created even if audio doesn't load
-// This will create boxes after 3 seconds if they haven't been created yet
-setTimeout(() => {
-  if (!boxesCreated) {
-    console.log('Creating boxes via fallback timer - audio may not be loaded yet');
-    createBoxes();
-    createSessionDisplay();
-    boxesCreated = true;
-  }
-}, 3000);
 
 // Add extra check for Safari to ensure boxes render
 if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf('Chrome') === -1) {
