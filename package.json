@@ -4,11 +4,12 @@
   "description": "Audio effects application with multi-user capabilities",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "prestart": "rm -rf node_modules/.cache || true",
+    "start": "NODE_ENV=production node server.js",
     "dev": "nodemon server.js"
   },
   "engines": {
-    "node": ">=14.x"
+    "node": "16.x"
   },
   "repository": {
     "type": "git",

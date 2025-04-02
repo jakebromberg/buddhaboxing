@@ -1,0 +1,32 @@
+{
+  "providers": [
+    "node"
+  ],
+  "buildImage": "node:16-alpine",
+  "variables": {
+    "NODE_ENV": "production"
+  },
+  "phases": {
+    "install": {
+      "cmds": [
+        "npm install --omit=dev"
+      ]
+    }
+  },
+  "start": {
+    "cmd": "npm start"
+  },
+  "caching": {
+    "layers": [
+      {
+        "name": "npm-cache",
+        "paths": [
+          "/root/.npm"
+        ]
+      }
+    ],
+    "exclude": [
+      "/app/node_modules/.cache"
+    ]
+  }
+} 

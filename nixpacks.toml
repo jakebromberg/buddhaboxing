@@ -1,0 +1,19 @@
+[phases.setup]
+nixPkgs = ["nodejs-16_x"]
+
+[phases.install]
+cmds = ["npm install --omit=dev"]
+
+# Skipping build phase to avoid cache conflicts
+[phases.build]
+cmds = []
+
+[start]
+cmd = "npm start"
+
+# Disable caching for node_modules/.cache
+[phases.setup.cache]
+directories = []
+
+[nixpacks]
+plan_path = "./nixpacks.plan.json" 
