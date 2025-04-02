@@ -1,11 +1,14 @@
 {
   "name": "buddha-boxing",
   "version": "1.0.0",
-  "description": "Interactive audio mixing with multiple audio loops and effects",
+  "description": "Audio effects application with multi-user capabilities",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js"
+  },
+  "engines": {
+    "node": ">=14.x"
   },
   "repository": {
     "type": "git",
@@ -25,9 +28,9 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "socket.io": "^4.7.2"
+    "socket.io": "^4.5.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^2.0.20"
   }
 }

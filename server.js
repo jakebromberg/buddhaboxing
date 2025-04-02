@@ -1,36 +1,39 @@
 const express = require('express');
 const http = require('http');
-const socketIo = require('socket.io');
+const socketIO = require('socket.io');
 const path = require('path');
 
 // Create Express app
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+const io = socketIO(server);
 
-// Serve static files from the 'public' directory
+// Serve static files from public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Default route serves the main HTML file
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'buddhaboxing.html'));
-});
-
-// Store session data
+// Track sessions and their states
 const sessions = {};
 
-// Socket.io connection handling
+// Socket.IO connections
 io.on('connection', (socket) => {
-  console.log('New client connected');
+  console.log('New client connected:', socket.id);
   
-  // Handle joining a session
+  let currentSession = null;
+  
+  // Join a session
   socket.on('joinSession', (sessionId) => {
-    console.log(`Client joined session: ${sessionId}`);
+    console.log(`Client ${socket.id} joining session: ${sessionId}`);
     
-    // Join the room for this session
+    // Leave any current session
+    if (currentSession) {
+      socket.leave(currentSession);
+    }
+    
+    // Join the new session
     socket.join(sessionId);
+    currentSession = sessionId;
     
-    // Create the session if it doesn't exist
+    // Initialize the session if it doesn't exist
     if (!sessions[sessionId]) {
       sessions[sessionId] = {
         boxes: []
@@ -41,69 +44,46 @@ io.on('connection', (socket) => {
     socket.emit('initialState', sessions[sessionId]);
   });
   
-  // Handle box updates (position, effect, volume, etc.)
+  // Handle box updates
   socket.on('updateBox', (data) => {
-    const { sessionId, boxId, newX, newY, effect, mixValue, volume, insideTable } = data;
+    const { sessionId, boxId, newX, newY, effect, mixValue, volume } = data;
     
-    // Store the updated box state
+    // Ignore if no session ID
+    if (!sessionId) return;
+    
+    // Initialize session if it doesn't exist
     if (!sessions[sessionId]) {
       sessions[sessionId] = { boxes: [] };
     }
     
-    if (!sessions[sessionId].boxes[boxId]) {
-      sessions[sessionId].boxes[boxId] = {};
+    // Initialize boxes array with enough capacity
+    while (sessions[sessionId].boxes.length <= boxId) {
+      sessions[sessionId].boxes.push({});
     }
     
-    const box = sessions[sessionId].boxes[boxId];
+    // Update the box state
+    const box = sessions[sessionId].boxes[boxId] || {};
+    if (newX !== undefined) box.x = newX;
+    if (newY !== undefined) box.y = newY;
+    if (effect !== undefined) box.effect = effect;
+    if (mixValue !== undefined) box.mixValue = mixValue;
+    if (volume !== undefined) box.volume = volume;
     
-    // Update position if provided
-    if (newX !== undefined && newY !== undefined) {
-      box.x = newX;
-      box.y = newY;
-    }
+    // Store the updated box
+    sessions[sessionId].boxes[boxId] = box;
     
-    // Update effect if provided
-    if (effect !== undefined) {
-      box.effect = effect;
-    }
-    
-    // Update mix value if provided
-    if (mixValue !== undefined) {
-      box.mixValue = mixValue;
-    }
-    
-    // Update volume if provided
-    if (volume !== undefined) {
-      box.volume = volume;
-    }
-    
-    // Update inside table state if provided
-    if (insideTable !== undefined) {
-      box.insideTable = insideTable;
-    }
-    
-    // Broadcast the update to all other clients in the session
-    socket.to(sessionId).emit('boxUpdated', {
-      boxId,
-      newX,
-      newY,
-      effect,
-      mixValue,
-      volume,
-      insideTable
-    });
+    // Broadcast to other clients in the same session
+    socket.to(sessionId).emit('boxUpdated', data);
   });
   
-  // Handle disconnection
+  // Handle disconnections
   socket.on('disconnect', () => {
-    console.log('Client disconnected');
-    // You could add cleanup code here if needed
+    console.log('Client disconnected:', socket.id);
   });
 });
 
-// Start server
+// Start the server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Buddha Boxing server running on port ${PORT}`);
-  console.log(`Open http://localhost:${PORT} in your browser`);
+  console.log(`Server running on port ${PORT}`);
 });

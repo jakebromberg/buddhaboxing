@@ -3,8 +3,16 @@
  ***********************************************/
 
 // 1. Session & Socket Setup
-// For simplicity, generate a random session ID
-const sessionId = "session-" + Math.floor(Math.random() * 1000000);
+// Get session ID from URL params or generate random one
+let sessionId;
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.has('session')) {
+  sessionId = urlParams.get('session');
+  console.log('Using session ID from URL:', sessionId);
+} else {
+  sessionId = "session-" + Math.floor(Math.random() * 1000000);
+  console.log('Generated new session ID:', sessionId);
+}
 
 // Connect to Socket.IO
 const socket = io();
@@ -535,24 +543,40 @@ function createSessionDisplay() {
   sessionDisplay.style.fontSize = '12px';
   sessionDisplay.style.zIndex = '1000';
   
-  // Session ID display
-  const sessionText = document.createElement('div');
-  sessionText.textContent = `Session: ${sessionId}`;
-  sessionDisplay.appendChild(sessionText);
+  // Create a full URL with session ID as query parameter
+  const fullUrl = new URL(window.location.href);
+  fullUrl.searchParams.set('session', sessionId);
+  const shareUrl = fullUrl.toString();
   
-  // Session URL
+  // Session URL (includes session ID)
   const sessionUrl = document.createElement('div');
-  sessionUrl.textContent = `URL: ${window.location.href}`;
-  sessionUrl.style.marginTop = '5px';
-  sessionUrl.style.cursor = 'pointer';
-  sessionUrl.onclick = () => {
-    navigator.clipboard.writeText(window.location.href);
-    sessionUrl.textContent = 'URL copied!';
+  sessionUrl.textContent = `Share URL:`;
+  sessionUrl.style.marginBottom = '5px';
+  sessionUrl.style.fontWeight = 'bold';
+  sessionDisplay.appendChild(sessionUrl);
+  
+  // URL display element with overflow handling
+  const urlDisplay = document.createElement('div');
+  urlDisplay.textContent = shareUrl;
+  urlDisplay.style.overflow = 'hidden';
+  urlDisplay.style.textOverflow = 'ellipsis';
+  urlDisplay.style.whiteSpace = 'nowrap';
+  urlDisplay.style.maxWidth = '250px';
+  urlDisplay.style.padding = '5px';
+  urlDisplay.style.background = 'rgba(0,0,0,0.5)';
+  urlDisplay.style.borderRadius = '3px';
+  urlDisplay.style.cursor = 'pointer';
+  urlDisplay.title = 'Click to copy';
+  
+  // Click to copy functionality
+  urlDisplay.onclick = () => {
+    navigator.clipboard.writeText(shareUrl);
+    urlDisplay.textContent = 'URL copied!';
     setTimeout(() => {
-      sessionUrl.textContent = `URL: ${window.location.href}`;
+      urlDisplay.textContent = shareUrl;
     }, 2000);
   };
-  sessionDisplay.appendChild(sessionUrl);
+  sessionDisplay.appendChild(urlDisplay);
   
   // Sync toggle
   const syncToggle = document.createElement('input');
@@ -567,7 +591,7 @@ function createSessionDisplay() {
   syncLabel.style.cursor = 'pointer';
   
   const syncContainer = document.createElement('div');
-  syncContainer.style.marginTop = '5px';
+  syncContainer.style.marginTop = '10px';
   syncContainer.appendChild(syncToggle);
   syncContainer.appendChild(syncLabel);
   sessionDisplay.appendChild(syncContainer);
@@ -632,11 +656,10 @@ socket.on('boxUpdated', ({ boxId, newX, newY, effect, mixValue, volume }) => {
 
 function createBoxes() {
   const table = document.getElementById('table');
-  const tableRect = table.getBoundingClientRect();
   
   // Create a box for each audio file
   audioFiles.forEach((file, index) => {
-    createBox(index, tableRect);
+    createBox(index, table);
   });
   
   // Apply any positions received from server
@@ -675,7 +698,7 @@ function checkBoxPosition(box, boxId) {
   }
 }
 
-function createBox(index, tableRect) {
+function createBox(index, table) {
   // Create box element
   const box = document.createElement('div');
   box.classList.add('box');
@@ -689,12 +712,19 @@ function createBox(index, tableRect) {
   boxNumber.classList.add('box-number');
   boxNumber.textContent = (index + 1).toString().padStart(2, '0');
   box.appendChild(boxNumber);
-  
+
+  // Create a container for controls that will be shown/hidden
+  const controlsContainer = document.createElement('div');
+  controlsContainer.classList.add('controls-container');
+  controlsContainer.style.opacity = '0'; // Initially hidden
+  controlsContainer.style.transition = 'opacity 0.3s ease';
+  box.appendChild(controlsContainer);
+
   // Add effect selector
   const effectLabel = document.createElement('div');
   effectLabel.classList.add('control-label');
   effectLabel.textContent = 'EFFECT';
-  box.appendChild(effectLabel);
+  controlsContainer.appendChild(effectLabel);
   
   const effectSelect = document.createElement('select');
   effectSelect.classList.add('effect-select');
@@ -708,13 +738,13 @@ function createBox(index, tableRect) {
     effectSelect.appendChild(option);
   });
   
-  box.appendChild(effectSelect);
+  controlsContainer.appendChild(effectSelect);
   
   // Add mix slider
   const mixLabel = document.createElement('div');
   mixLabel.classList.add('control-label');
   mixLabel.textContent = 'DRY/WET';
-  box.appendChild(mixLabel);
+  controlsContainer.appendChild(mixLabel);
   
   const mixSlider = document.createElement('input');
   mixSlider.type = 'range';
@@ -723,13 +753,13 @@ function createBox(index, tableRect) {
   mixSlider.value = 0; // Start completely dry
   mixSlider.classList.add('mix-control');
   box.mixSlider = mixSlider; // Store reference for sync
-  box.appendChild(mixSlider);
+  controlsContainer.appendChild(mixSlider);
   
   // Add volume label
   const volumeLabel = document.createElement('div');
   volumeLabel.classList.add('control-label');
   volumeLabel.textContent = 'VOLUME';
-  box.appendChild(volumeLabel);
+  controlsContainer.appendChild(volumeLabel);
   
   // Add volume slider
   const volumeSlider = document.createElement('input');
@@ -739,17 +769,55 @@ function createBox(index, tableRect) {
   volumeSlider.value = 100;
   volumeSlider.classList.add('volume-control');
   box.volumeSlider = volumeSlider; // Store reference for sync
-  box.appendChild(volumeSlider);
+  controlsContainer.appendChild(volumeSlider);
   
-  // Position box outside the table initially
-  const leftPosition = -120 - (index * 20); // Cascade boxes to the left
-  box.style.left = `${leftPosition}px`;
-  box.style.top = `${20 + (index * 40)}px`; // Stack vertically with some space between
+  // Position all boxes on the left side initially
+  box.style.left = '10px';
+  box.style.top = `${20 + index * 50}px`; // Closer together when collapsed
   
-  // Add box to table
-  const table = document.getElementById('table');
-  table.appendChild(box);
+  // Add box to body instead of table
+  document.body.appendChild(box);
   
+  // Single click handler for both expanding and debug panel
+  box.addEventListener('click', (e) => {
+    // Don't do anything if clicking on controls
+    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider) {
+      return;
+    }
+    
+    // Toggle expanded class
+    const wasExpanded = box.classList.contains('expanded');
+    box.classList.toggle('expanded');
+    
+    // Show/hide controls
+    if (!wasExpanded) {
+      // Show controls when expanding
+      controlsContainer.style.opacity = '1';
+      
+      // Show debug panel if expanding
+      activeBoxForDebug = box;
+      debugPanel.classList.add('active');
+      
+      // Create parameter sliders for current effect
+      if (effectSelect.value !== 'none') {
+        createParamSliders(box, effectSelect.value);
+      } else {
+        debugTitle.textContent = 'No Effect Selected';
+        paramContainer.innerHTML = '';
+      }
+    } else {
+      // Hide controls when collapsing
+      controlsContainer.style.opacity = '0';
+      
+      // Hide debug panel when collapsing
+      debugPanel.classList.remove('active');
+      activeBoxForDebug = null;
+    }
+    
+    // Prevent propagation
+    e.stopPropagation();
+  });
+
   // Setup audio nodes for this box
   let sourceNode = null;
   let gainNode = audioCtx.createGain();
@@ -1026,7 +1094,19 @@ function createBox(index, tableRect) {
     offsetX = e.clientX - box.offsetLeft;
     offsetY = e.clientY - box.offsetTop;
     box.setPointerCapture(e.pointerId);
-    box.style.zIndex = 10; // Bring to front when dragging
+    
+    // If the box isn't expanded, do not consider this a drag yet
+    // Give the user a chance to click to expand
+    if (!box.classList.contains('expanded')) {
+      // Wait a bit to see if this is a drag or just a click
+      setTimeout(() => {
+        if (isDragging) {
+          box.style.zIndex = 10; // Bring to front when dragging
+        }
+      }, 150);
+    } else {
+      box.style.zIndex = 10; // Bring to front when dragging
+    }
   });
 
   box.addEventListener('pointermove', (e) => {
@@ -1035,6 +1115,20 @@ function createBox(index, tableRect) {
       const newY = e.clientY - offsetY;
       box.style.left = newX + 'px';
       box.style.top = newY + 'px';
+      
+      // Log box position and table bounds for debugging
+      const boxRect = box.getBoundingClientRect();
+      const tableRect = document.getElementById('table').getBoundingClientRect();
+      console.log(`Box ${index+1} position:`, {
+        boxLeft: boxRect.left,
+        boxRight: boxRect.right,
+        boxTop: boxRect.top,
+        boxBottom: boxRect.bottom,
+        tableLeft: tableRect.left,
+        tableRight: tableRect.right,
+        tableTop: tableRect.top,
+        tableBottom: tableRect.bottom
+      });
       
       // Throttle updates to server to avoid flooding
       if (!box.lastUpdate || Date.now() - box.lastUpdate > 50) {
@@ -1076,31 +1170,6 @@ function createBox(index, tableRect) {
         stopAudio();
       }
     }
-  });
-
-  // Add click handler for debug mode
-  box.addEventListener('click', (e) => {
-    // Don't activate debug if clicking controls
-    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider) {
-      return;
-    }
-    
-    // Set as active box for debugging
-    activeBoxForDebug = box;
-    
-    // Show debug panel
-    debugPanel.classList.add('active');
-    
-    // Create parameter sliders for current effect
-    if (effectSelect.value !== 'none') {
-      createParamSliders(box, effectSelect.value);
-    } else {
-      debugTitle.textContent = 'No Effect Selected';
-      paramContainer.innerHTML = '';
-    }
-    
-    // Prevent propagation
-    e.stopPropagation();
   });
 }
 
