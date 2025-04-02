@@ -121,10 +121,12 @@
   <script src="client.js"></script>
   <script>
     // Hot reload support
-    const socket = io();
-    socket.on('reload', () => {
-      window.location.reload();
-    });
+    // Use the existing socket connection from client.js
+    if (typeof socket !== 'undefined') {
+      socket.on('reload', () => {
+        window.location.reload();
+      });
+    }
   </script>
 </body>
 </html> 

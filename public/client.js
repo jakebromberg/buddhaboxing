@@ -44,13 +44,115 @@ function safariAudioUnlock() {
           }, 100);
         })
         .catch(error => {
-          console.warn("Safari silent audio failed to play:", error);
-          resolve(); // Still resolve to continue with the app
+          // Only log if it's not a NotAllowedError (which is expected in Safari)
+          if (error.name !== 'NotAllowedError') {
+            console.warn("Safari silent audio failed to play:", error);
+          }
+          // Still resolve to continue with the app
+          resolve();
         });
     } else {
       // Older browsers don't return a promise
       setTimeout(resolve, 100);
     }
+  });
+}
+
+// Initialize audio context and ensure it's unlocked before creating boxes
+let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let isInitialized = false;
+
+// Function to ensure everything is initialized
+async function ensureInitialized() {
+  if (isInitialized) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    // Wait for audio context to be ready
+    const audioContextReady = new Promise((audioResolve) => {
+      if (audioCtx.state === 'running') {
+        audioResolve();
+      } else {
+        const resumeAudio = () => {
+          audioCtx.resume().then(() => {
+            console.log('Audio context resumed');
+            audioResolve();
+          }).catch(e => {
+            console.warn('Audio context resume failed:', e);
+            audioResolve(); // Still resolve to continue
+          });
+        };
+
+        // Try to resume on first user interaction
+        const handleInteraction = () => {
+          console.log('User interaction detected, attempting to resume audio context');
+          resumeAudio();
+          document.removeEventListener('click', handleInteraction);
+          document.removeEventListener('touchstart', handleInteraction);
+        };
+
+        document.addEventListener('click', handleInteraction);
+        document.addEventListener('touchstart', handleInteraction);
+      }
+    });
+
+    // Wait for audio files to be loaded
+    const audioFilesReady = new Promise((filesResolve) => {
+      const checkFiles = () => {
+        const allLoaded = window.audioLoadStatus && 
+          window.audioLoadStatus.every(status => status === 'loaded' || status === 'basic-ready');
+        
+        if (allLoaded) {
+          console.log('All audio files loaded');
+          filesResolve();
+        } else {
+          setTimeout(checkFiles, 100);
+        }
+      };
+      checkFiles();
+    });
+
+    // Wait for both audio context and files
+    Promise.all([audioContextReady, audioFilesReady]).then(() => {
+      console.log('All components initialized');
+      isInitialized = true;
+      resolve();
+    });
+  });
+}
+
+// Add click handler to unlock audio context
+document.addEventListener('click', () => {
+  if (audioCtx.state === 'suspended') {
+    console.log('Unlocking audio context on first click');
+    audioCtx.resume().then(() => {
+      console.log('Audio context unlocked on click');
+    }).catch(e => {
+      console.warn('Failed to unlock audio context:', e);
+    });
+  }
+}, { once: true });
+
+// Function to ensure audio context is initialized and unlocked
+function ensureAudioContextInitialized() {
+  return new Promise((resolve) => {
+    if (audioCtx.state === 'running') {
+      console.log('Audio context already running');
+      resolve();
+      return;
+    }
+
+    console.log('Resuming audio context');
+    audioCtx.resume()
+      .then(() => {
+        console.log('Audio context resumed');
+        resolve();
+      })
+      .catch(e => {
+        console.warn('Audio context resume failed:', e);
+        resolve(); // Still resolve to continue
+      });
   });
 }
 
@@ -76,9 +178,6 @@ let createdBoxes = [];
 let syncEnabled = true;
 let lastUpdateTime = 0;
 const UPDATE_INTERVAL = 1000 / 30; // 30 FPS for smooth updates
-
-// 1. Audio Context
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 // Create Tuna effects processor
 const tuna = new Tuna(audioCtx);
@@ -655,13 +754,11 @@ function loadAudioFiles() {
         return loadSingleAudioFile(url, index);
       });
 
-      // Track loaded count to avoid stalling
-      let loadedCount = 0;
-      const maxLoadAttempts = 3;
-
       return Promise.allSettled(loadPromises)
-        .then(() => {
-          console.log(`Successfully loaded ${loadedCount} audio files`);
+        .then((results) => {
+          // Count successful loads
+          const successfulLoads = results.filter(r => r.status === 'fulfilled').length;
+          console.log(`Successfully loaded ${successfulLoads} audio files`);
           console.log('Audio load status:', window.audioLoadStatus);
         });
     })
@@ -677,9 +774,12 @@ setTimeout(loadAudioFiles, 100);
 // Modify loadSingleAudioFile to handle immediate playback
 function loadSingleAudioFile(url, index) {
   return new Promise((resolve, reject) => {
+    console.log(`Starting to load audio file: ${url} for index ${index}`);
+    
     // Initialize audio context if needed
     if (!audioCtx) {
-      audioCtx = initAudioContext();
+      console.log('Initializing new AudioContext');
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
 
     // Check if we're in debug mode
@@ -693,14 +793,17 @@ function loadSingleAudioFile(url, index) {
     }
 
     // First, load the raw audio for immediate playback
+    console.log(`Fetching audio file: /loops/${url}`);
     fetch(`/loops/${url}`)
       .then(response => {
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
+        console.log(`Successfully fetched ${url}, converting to array buffer`);
         return response.arrayBuffer();
       })
       .then(arrayBuffer => {
+        console.log(`Creating temporary audio element for ${url}`);
         // Create a temporary audio element for immediate playback
         const tempAudio = new Audio();
         tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
@@ -712,6 +815,7 @@ function loadSingleAudioFile(url, index) {
         // Update status to indicate basic playback is ready
         window.audioLoadStatus[index] = 'basic-ready';
         
+        console.log(`Starting audio decoding for ${url}`);
         // Now decode for effects in the background
         audioCtx.decodeAudioData(
           arrayBuffer,
@@ -911,13 +1015,26 @@ function createBoxes() {
   }, 500);
 }
 
+// Add debounce function at the top level
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
 function checkBoxPosition(box, boxId) {
   // Get table boundaries
   const table = document.getElementById('table');
   
   // Safety check - if table doesn't exist, don't try to position boxes
   if (!table) {
-    console.error('Table element not found');
+    console.error('Table element not found - check if table element exists in HTML');
     return;
   }
   
@@ -932,17 +1049,26 @@ function checkBoxPosition(box, boxId) {
     boxRect.bottom <= tableRect.bottom
   );
   
+  console.log(`Box ${boxId + 1} position check:`, {
+    insideTable,
+    boxPosition: { left: boxRect.left, top: boxRect.top },
+    tableBounds: { left: tableRect.left, top: tableRect.top },
+    isPlaying: box.isPlaying,
+    audioContextState: audioCtx.state
+  });
+  
   // Start or stop audio based on position
   if (insideTable) {
     if (box.startAudio) {
-      // Add a small delay to ensure the context is ready
-      // This helps with the first few boxes that are dragged to the table
-      setTimeout(() => {
-        box.startAudio();
-      }, 100);
+      console.log(`Starting audio for box ${boxId + 1}`);
+      // Don't set isPlaying here - let startAudio handle it
+      box.startAudio();
     }
   } else {
-    if (box.stopAudio) box.stopAudio();
+    if (box.stopAudio && box.isPlaying) {
+      console.log(`Stopping audio for box ${boxId + 1}`);
+      box.stopAudio();
+    }
   }
 }
 
@@ -1061,9 +1187,11 @@ function createBox(index, table) {
   let hasDragged = false; // New flag to track if a drag occurred
   
   box.addEventListener('mousedown', (e) => {
+    console.log('Mouse down on box:', index + 1);
     // Don't start dragging if clicking on controls
     if (e.target === effectSelect || e.target === mixSlider || e.target === volumeSlider || 
         e.target.closest('select') || e.target.closest('input')) {
+      console.log('Ignoring mousedown on controls');
       return;
     }
     
@@ -1074,9 +1202,19 @@ function createBox(index, table) {
     initialX = box.offsetLeft;
     initialY = box.offsetTop;
     
+    console.log('Starting drag:', {
+      startX,
+      startY,
+      initialX,
+      initialY
+    });
+    
     // Start smooth position updates
     updateBoxPosition(box, index);
   });
+  
+  // Create debounced version of checkBoxPosition for each box
+  const debouncedCheckPosition = debounce(checkBoxPosition, 100);
   
   document.addEventListener('mousemove', (e) => {
     if (!isDragging) return;
@@ -1088,6 +1226,9 @@ function createBox(index, table) {
     // Check if we've actually moved
     if (Math.abs(newX - initialX) > 5 || Math.abs(newY - initialY) > 5) {
       hasDragged = true;
+      
+      // Use debounced version of checkBoxPosition
+      debouncedCheckPosition(box, index);
     }
     
     box.style.left = `${newX}px`;
@@ -1095,16 +1236,30 @@ function createBox(index, table) {
   });
   
   document.addEventListener('mouseup', () => {
-    isDragging = false;
+    if (isDragging) {
+      console.log('Mouse up on box:', index + 1, 'hasDragged:', hasDragged);
+      isDragging = false;
+      
+      // Use debounced version for final position check
+      debouncedCheckPosition(box, index);
+    }
   });
   
   // Add click handler to expand/collapse box
   box.addEventListener('click', (e) => {
+    console.log('Click on box:', index + 1, 'hasDragged:', hasDragged);
+    
     // Don't expand if we've dragged
-    if (hasDragged) return;
+    if (hasDragged) {
+      console.log('Ignoring click after drag');
+      return;
+    }
     
     // Don't expand if clicking on controls
-    if (e.target === effectSelect || e.target === mixSlider || e.target === volumeSlider) return;
+    if (e.target === effectSelect || e.target === mixSlider || e.target === volumeSlider) {
+      console.log('Ignoring click on controls');
+      return;
+    }
     
     // Toggle expanded state
     box.classList.toggle('expanded');
@@ -1380,56 +1535,33 @@ function createBox(index, table) {
     e.stopPropagation();
   });
   
-  // Modify the startAudio function to handle both basic and effect-enabled playback
+  
+  // Modify startAudio function to use the global initialization
   function startAudio() {
-    // Make sure audio context exists
-    if (!audioCtx) {
-      audioCtx = initAudioContext();
-      // Initialize Tuna if needed
-      initTuna();
-    }
+    console.log('startAudio called, checking audio context state:', audioCtx.state);
     
-    // Add user interaction check for Safari
-    if (audioCtx.state === 'suspended') {
-      console.log('Audio context is suspended, attempting to resume');
-      
-      // For Safari specifically
-      if (isSafari) {
-        safariAudioUnlock().then(() => {
-          console.log("Safari-specific audio unlock completed");
-          return audioCtx.resume();
-        }).then(() => {
-          console.log("AudioContext resumed after Safari unlock");
-        }).catch(e => {
-          console.warn("Safari audio unlock error:", e);
-        });
-      } else {
-        // For other browsers
-        const tempAudio = new Audio();
-        tempAudio.play().then(() => {
-          console.log('Temporary audio played to unlock context');
-          tempAudio.pause();
-        }).catch(e => console.log('Could not play temp audio:', e));
-      }
+    // If already playing, don't start again
+    if (box.isPlaying) {
+      console.log(`Box ${index + 1} is already playing, skipping start`);
+      return;
     }
 
-    // Track retry attempts to prevent endless loops
-    if (!box.retryCount) {
-      box.retryCount = 0;
-    }
-
-    // Ensure we have a user gesture & audioCtx is resumed
-    audioCtx.resume().then(() => {
-      console.log('Audio context resumed successfully');
-      
+    // Use the global audio context initialization
+    ensureAudioContextInitialized().then(() => {
       // Add a small delay to ensure everything is properly initialized
-      // Safari needs a slightly longer delay
       const delayMs = isSafari ? 200 : 50;
       
       setTimeout(() => {
         // Check if we have either basic audio or full audio buffer
         const hasBasicAudio = window.tempAudioElements && window.tempAudioElements[index];
         const hasFullAudio = audioBuffers[index];
+        
+        console.log(`Box ${index + 1} audio state:`, {
+          hasBasicAudio,
+          hasFullAudio,
+          audioContextState: audioCtx.state,
+          sourceNode: !!sourceNode
+        });
         
         if (!hasBasicAudio && !hasFullAudio) {
           console.error(`No audio available for box ${index + 1}`);
@@ -1447,11 +1579,6 @@ function createBox(index, table) {
             };
             box.appendChild(reloadBtn);
           }
-          
-          if (box.retryCount < 3) {
-            box.retryCount++;
-            setTimeout(() => startAudio(), 200);
-          }
           return;
         }
         
@@ -1464,6 +1591,7 @@ function createBox(index, table) {
         if (hasFullAudio) {
           if (!sourceNode) {
             try {
+              console.log(`Creating new source node for box ${index + 1}`);
               sourceNode = audioCtx.createBufferSource();
               sourceNode.buffer = audioBuffers[index];
               sourceNode.loop = true;
@@ -1476,90 +1604,68 @@ function createBox(index, table) {
               
               // Setup initial effect if one is selected and effects are ready
               if (effectsReady && effectSelect.value !== 'none') {
-                // First make sure any previous effect is cleaned up
+                console.log(`Setting up effect ${effectSelect.value} for box ${index + 1}`);
                 cleanupEffect();
-                
-                // Ensure basic routing is set up
                 setupAudioRouting();
-                
-                // Then set up the new effect
                 setupEffect(effectSelect.value);
-                  
-                // Apply the current mix value
                 const mixValue = mixSlider.value / 100;
                 applyMix(mixValue);
               }
 
-              // Safari sometimes needs a small delay before starting
-              if (isSafari) {
-                setTimeout(() => {
-                  try {
-                    sourceNode.start(0);
-                    console.log(`Started audio for box ${index + 1} (Safari)`);
-                  } catch (e) {
-                    console.error(`Safari error starting audio for box ${index + 1}:`, e);
-                    sourceNode = null;
-                    if (box.retryCount < 3) {
-                      box.retryCount++;
-                      setTimeout(() => startAudio(), 300);
-                    }
-                  }
-                }, 100);
-              } else {
-                try {
-                  sourceNode.start(0);
-                  console.log(`Started audio for box ${index + 1}`);
-                } catch (e) {
-                  console.error(`Error starting audio for box ${index + 1}:`, e);
-                  sourceNode = null;
-                  if (box.retryCount < 3) {
-                    box.retryCount++;
-                    setTimeout(() => startAudio(), 200);
-                  }
-                  return;
-                }
+              // Set the gain based on the current slider value
+              const volume = volumeSlider.value / 100;
+              console.log(`Setting volume to ${volume} for box ${index + 1}`);
+              
+              // Fade in
+              gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+              gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+              gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.5);
+
+              try {
+                sourceNode.start(0);
+                console.log(`Started audio for box ${index + 1}`);
+                box.isPlaying = true;
+              } catch (e) {
+                console.error(`Error starting audio for box ${index + 1}:`, e);
+                sourceNode = null;
+                box.isPlaying = false;
               }
             } catch (e) {
               console.error(`Error creating audio source for box ${index + 1}:`, e);
-              if (box.retryCount < 3) {
-                box.retryCount++;
-                setTimeout(() => startAudio(), 200);
-              }
-              return;
             }
           }
         } else {
           // Use basic audio element for playback
           const tempAudio = window.tempAudioElements[index];
           if (tempAudio && tempAudio.paused) {
+            console.log(`Starting basic audio playback for box ${index + 1}`);
             tempAudio.loop = true;
-            tempAudio.play().catch(e => {
+            tempAudio.volume = volumeSlider.value / 100;
+            tempAudio.play().then(() => {
+              console.log(`Basic audio started for box ${index + 1}`);
+              box.isPlaying = true;
+            }).catch(e => {
               console.error(`Error playing basic audio for box ${index + 1}:`, e);
+              box.isPlaying = false;
             });
           }
         }
-        
-        // Set the gain based on the current slider value
-        const volume = volumeSlider.value / 100;
-        // Fade in
-        gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-        gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.5);
       }, delayMs);
     }).catch(error => {
-      console.error('Error resuming audio context:', error);
-      // Only retry if we haven't reached the limit
-      if (box.retryCount < 3) {
-        box.retryCount++;
-        setTimeout(() => startAudio(), 200);
-      }
+      console.error('Error ensuring audio context is ready:', error);
     });
   }
   
   // Attach startAudio to box for external calling
   box.startAudio = startAudio;
 
+  // Modify stopAudio to be more reliable
   function stopAudio() {
+    console.log(`Stopping audio for box ${index + 1}`);
+    
+    // Clear playing state immediately
+    box.isPlaying = false;
+    
     // Fade out
     gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
     gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
@@ -1568,9 +1674,21 @@ function createBox(index, table) {
     // Stop source after fade
     setTimeout(() => {
       if (sourceNode) {
-        sourceNode.stop();
-        sourceNode.disconnect();
-        sourceNode = null;
+        try {
+          sourceNode.stop();
+          sourceNode.disconnect();
+          sourceNode = null;
+          console.log(`Successfully stopped audio for box ${index + 1}`);
+        } catch (e) {
+          console.error(`Error stopping audio for box ${index + 1}:`, e);
+        }
+      }
+      
+      // Also stop basic audio if it's playing
+      const tempAudio = window.tempAudioElements && window.tempAudioElements[index];
+      if (tempAudio && !tempAudio.paused) {
+        tempAudio.pause();
+        tempAudio.currentTime = 0;
       }
     }, 600); // slightly more than 0.5s
   }
