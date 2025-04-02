@@ -301,44 +301,63 @@ const nativeEffects = {
   },
   'bitcrusher': {
     create: () => {
-      // We need to use ScriptProcessorNode for bitcrushing
-      // (Yes, it's deprecated but it's the simplest way to do this)
-      const bufferSize = 4096;
-      const crusher = audioCtx.createScriptProcessor(bufferSize, 2, 2);
-      
-      // Set default values
-      crusher.bits = 8;        // Bit depth 
-      crusher.normFreq = 0.15; // Normalized frequency (1=sample rate, 0.5=half sample rate)
-      crusher.step = Math.pow(0.5, crusher.bits);
-      crusher._lastValues = [0, 0]; // Store last values for sample rate reduction
-      
-      // The actual bitcrushing logic
-      crusher.onaudioprocess = (e) => {
-        const inputL = e.inputBuffer.getChannelData(0);
-        const inputR = e.inputBuffer.getChannelData(1);
-        const outputL = e.outputBuffer.getChannelData(0);
-        const outputR = e.outputBuffer.getChannelData(1);
+      try {
+        // We need to use ScriptProcessorNode for bitcrushing
+        // (Yes, it's deprecated but it's the simplest way to do this)
+        const bufferSize = 4096;
+        const crusher = audioCtx.createScriptProcessor(bufferSize, 2, 2);
         
-        // Calculate parameters from properties
-        const step = Math.pow(0.5, crusher.bits);
-        const phaseIncr = crusher.normFreq;
+        // Set default values
+        crusher.bits = 8;        // Bit depth 
+        crusher.normFreq = 0.15; // Normalized frequency (1=sample rate, 0.5=half sample rate)
+        crusher.step = Math.pow(0.5, crusher.bits);
+        crusher._lastValues = [0, 0]; // Store last values for sample rate reduction
         
-        // Process samples
-        for (let i = 0; i < bufferSize; i++) {
-          // Check if we need to compute a new sample (sample rate reduction)
-          if ((i % Math.floor(1/phaseIncr)) === 0) {
-            // Apply bit depth reduction by quantizing to steps
-            crusher._lastValues[0] = Math.round(inputL[i] / step) * step;
-            crusher._lastValues[1] = Math.round(inputR[i] / step) * step;
-          }
+        // The actual bitcrushing logic
+        crusher.onaudioprocess = (e) => {
+          const inputL = e.inputBuffer.getChannelData(0);
+          const inputR = e.inputBuffer.getChannelData(1);
+          const outputL = e.outputBuffer.getChannelData(0);
+          const outputR = e.outputBuffer.getChannelData(1);
           
-          // Copy reduced values to output
-          outputL[i] = crusher._lastValues[0];
-          outputR[i] = crusher._lastValues[1];
+          // Calculate parameters from properties
+          const step = Math.pow(0.5, crusher.bits);
+          const phaseIncr = crusher.normFreq;
+          
+          // Process samples
+          for (let i = 0; i < bufferSize; i++) {
+            // Check if we need to compute a new sample (sample rate reduction)
+            if ((i % Math.floor(1/phaseIncr)) === 0) {
+              // Apply bit depth reduction by quantizing to steps
+              crusher._lastValues[0] = Math.round(inputL[i] / step) * step;
+              crusher._lastValues[1] = Math.round(inputR[i] / step) * step;
+            }
+            
+            // Copy reduced values to output
+            outputL[i] = crusher._lastValues[0];
+            outputR[i] = crusher._lastValues[1];
+          }
+        };
+        
+        return crusher;
+      } catch (error) {
+        console.error("Failed to create bitcrusher effect:", error);
+        // Fallback for Safari - use a simple distortion instead
+        const distortion = audioCtx.createWaveShaper();
+        const curve = new Float32Array(44100);
+        for (let i = 0; i < 44100; i++) {
+          const x = i * 2 / 44100 - 1;
+          // Create a harsh distortion curve as a rough approximation
+          curve[i] = Math.sign(x) * Math.pow(Math.abs(x), 0.5);
         }
-      };
-      
-      return crusher;
+        distortion.curve = curve;
+        distortion.oversample = '4x';
+        
+        // Add dummy properties to mimic the bitcrusher
+        distortion.bits = 8;
+        distortion.normFreq = 0.15;
+        return distortion;
+      }
     },
     params: {
       bits: { min: 1, max: 16, default: 8, callback: (effect, value) => {
@@ -352,55 +371,81 @@ const nativeEffects = {
   },
   'ring-modulator': {
     create: () => {
-      // Create oscillator for modulation
-      const osc = audioCtx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = 440; // 440Hz - "A" note
-      
-      // Create gain node for math operations
-      const modulationGain = audioCtx.createGain();
-      modulationGain.gain.value = 1.0;
-      
-      // Connect oscillator to gain
-      osc.connect(modulationGain);
-      osc.start(0);
-      
-      // Create actual ring modulator using a gain node
-      // Ring modulation works by multiplying the audio signal by a sine wave
-      const ringMod = audioCtx.createGain();
-      
-      // Create worklet to do the multiplication
-      const bufferSize = 4096;
-      const modulator = audioCtx.createScriptProcessor(bufferSize, 2, 2);
-      modulator._ringFreq = 440;
-      modulator._depth = 1.0;
-      
-      modulator.onaudioprocess = (e) => {
-        const inputL = e.inputBuffer.getChannelData(0);
-        const inputR = e.inputBuffer.getChannelData(1);
-        const outputL = e.outputBuffer.getChannelData(0);
-        const outputR = e.outputBuffer.getChannelData(1);
+      try {
+        // Create oscillator for modulation
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = 440; // 440Hz - "A" note
         
-        // Perform the ring modulation
-        for (let i = 0; i < bufferSize; i++) {
-          // Generate modulator signal
-          const mod = Math.sin(2 * Math.PI * modulator._ringFreq * i / audioCtx.sampleRate);
+        // Create gain node for math operations
+        const modulationGain = audioCtx.createGain();
+        modulationGain.gain.value = 1.0;
+        
+        // Connect oscillator to gain
+        osc.connect(modulationGain);
+        osc.start(0);
+        
+        // Create actual ring modulator using a gain node
+        // Ring modulation works by multiplying the audio signal by a sine wave
+        const ringMod = audioCtx.createGain();
+        
+        // Create worklet to do the multiplication
+        const bufferSize = 4096;
+        const modulator = audioCtx.createScriptProcessor(bufferSize, 2, 2);
+        modulator._ringFreq = 440;
+        modulator._depth = 1.0;
+        
+        modulator.onaudioprocess = (e) => {
+          const inputL = e.inputBuffer.getChannelData(0);
+          const inputR = e.inputBuffer.getChannelData(1);
+          const outputL = e.outputBuffer.getChannelData(0);
+          const outputR = e.outputBuffer.getChannelData(1);
           
-          // Apply depth - mix between modulated and original signal
-          const modDepth = modulator._depth;
-          const origDepth = 1 - modDepth;
-          
-          // Apply modulation and write to output
-          outputL[i] = (inputL[i] * mod * modDepth) + (inputL[i] * origDepth);
-          outputR[i] = (inputR[i] * mod * modDepth) + (inputR[i] * origDepth);
-        }
-      };
-      
-      return {
-        input: modulator,
-        output: modulator,
-        _modulator: modulator
-      };
+          // Perform the ring modulation
+          for (let i = 0; i < bufferSize; i++) {
+            // Generate modulator signal
+            const mod = Math.sin(2 * Math.PI * modulator._ringFreq * i / audioCtx.sampleRate);
+            
+            // Apply depth - mix between modulated and original signal
+            const modDepth = modulator._depth;
+            const origDepth = 1 - modDepth;
+            
+            // Apply modulation and write to output
+            outputL[i] = (inputL[i] * mod * modDepth) + (inputL[i] * origDepth);
+            outputR[i] = (inputR[i] * mod * modDepth) + (inputR[i] * origDepth);
+          }
+        };
+        
+        return {
+          input: modulator,
+          output: modulator,
+          _modulator: modulator
+        };
+      } catch (error) {
+        console.error("Failed to create ring-modulator effect:", error);
+        // Fallback for Safari - use a simpler approach with an oscillator and gain
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.value = 440;
+        gain.gain.value = 0.5;
+        
+        osc.connect(gain);
+        osc.start(0);
+        
+        // Create a gain node that will be our input & output
+        const ringMod = audioCtx.createGain();
+        
+        return {
+          input: ringMod,
+          output: ringMod,
+          _modulator: {
+            _ringFreq: 440,
+            _depth: 1.0
+          }
+        };
+      }
     },
     params: {
       frequency: { min: 50, max: 5000, default: 440, callback: (effect, value) => {
@@ -528,19 +573,61 @@ const boxColors = [
 const audioFiles = ['01', '02', '03', '04', '05', '06', '07', '08', '09'];
 const audioBuffers = new Array(audioFiles.length);
 let loadedCount = 0;
+let boxesCreated = false; // Track if boxes have been created
+
+// Function to ensure the audio context is running
+function ensureAudioContext() {
+  if (audioCtx.state === 'suspended') {
+    console.log('Audio context is suspended, attempting to resume for decoding');
+    return audioCtx.resume();
+  }
+  return Promise.resolve();
+}
+
+// Add event listener to unlock audio on first user interaction
+document.addEventListener('click', function unlockAudio() {
+  console.log('User interaction detected, resuming audio context');
+  audioCtx.resume().then(() => {
+    console.log('Audio context resumed from user interaction');
+    // If boxes haven't been created yet and all audio is loaded, create them
+    if (!boxesCreated && loadedCount === audioFiles.length) {
+      createBoxes();
+      createSessionDisplay();
+      boxesCreated = true;
+    }
+  });
+  // Only need this once
+  document.removeEventListener('click', unlockAudio);
+}, { once: true });
 
 audioFiles.forEach((file, index) => {
   fetch(`loops/${file}.m4a`)
-    .then(response => response.arrayBuffer())
-    .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP error loading audio file ${file}.m4a: ${response.status}`);
+      }
+      return response.arrayBuffer();
+    })
+    .then(arrayBuffer => {
+      console.log(`Decoding audio file ${file}.m4a (${arrayBuffer.byteLength} bytes)`);
+      return ensureAudioContext().then(() => audioCtx.decodeAudioData(arrayBuffer));
+    })
     .then(decodedData => {
+      console.log(`Successfully decoded audio file ${file}.m4a`);
       audioBuffers[index] = decodedData;
       loadedCount++;
       if (loadedCount === audioFiles.length) {
-        createBoxes();
-        // Add session display
-        createSessionDisplay();
+        // Create boxes only if they haven't been created yet
+        if (!boxesCreated) {
+          createBoxes();
+          // Add session display
+          createSessionDisplay();
+          boxesCreated = true;
+        }
       }
+    })
+    .catch(error => {
+      console.error(`Error loading audio file ${file}.m4a:`, error);
     });
 });
 
@@ -671,7 +758,13 @@ socket.on('boxUpdated', ({ boxId, newX, newY, effect, mixValue, volume }) => {
 });
 
 function createBoxes() {
+  console.log('Creating boxes...');
   const table = document.getElementById('table');
+  
+  // Safety check - if table doesn't exist, log error but continue creating boxes
+  if (!table) {
+    console.error('Table element not found - boxes will still be created but may not be properly positioned');
+  }
   
   // Create a box for each audio file
   audioFiles.forEach((file, index) => {
@@ -690,11 +783,31 @@ function createBoxes() {
       }
     });
   }
+  
+  // Log how many boxes were created
+  console.log(`Created ${createdBoxes.length} boxes`);
+  
+  // Add a small delay and recheck visibility of all boxes
+  setTimeout(() => {
+    createdBoxes.forEach((box, index) => {
+      if (box && !box.isConnected) {
+        console.error(`Box ${index+1} is not connected to DOM, recreating`);
+        document.body.appendChild(box);
+      }
+    });
+  }, 500);
 }
 
 function checkBoxPosition(box, boxId) {
   // Get table boundaries
   const table = document.getElementById('table');
+  
+  // Safety check - if table doesn't exist, don't try to position boxes
+  if (!table) {
+    console.error('Table element not found');
+    return;
+  }
+  
   const tableRect = table.getBoundingClientRect();
   const boxRect = box.getBoundingClientRect();
   
@@ -708,17 +821,29 @@ function checkBoxPosition(box, boxId) {
   
   // Start or stop audio based on position
   if (insideTable) {
-    if (box.startAudio) box.startAudio();
+    if (box.startAudio) {
+      // Add a small delay to ensure the context is ready
+      // This helps with the first few boxes that are dragged to the table
+      setTimeout(() => {
+        box.startAudio();
+      }, 100);
+    }
   } else {
     if (box.stopAudio) box.stopAudio();
   }
 }
 
 function createBox(index, table) {
+  console.log(`Creating box ${index+1}`);
   // Create box element
   const box = document.createElement('div');
   box.classList.add('box');
   box.style.backgroundColor = boxColors[index];
+  
+  // Make boxes visible with explicit visibility and opacity
+  box.style.visibility = 'visible';
+  box.style.opacity = '1';
+  box.style.zIndex = '1';
   
   // Store reference to this box
   createdBoxes[index] = box;
@@ -804,9 +929,12 @@ function createBox(index, table) {
   box.volumeSlider = volumeSlider; // Store reference for sync
   controlsContainer.appendChild(volumeSlider);
   
-  // Position all boxes on the left side initially
+  // Position all boxes on the left side initially - ensure these styles are applied
+  box.style.position = 'absolute';
   box.style.left = '10px';
   box.style.top = `${20 + index * 50}px`; // Closer together when collapsed
+  box.style.width = '120px';
+  box.style.height = '40px';
   
   // Add box to body instead of table
   document.body.appendChild(box);
@@ -893,20 +1021,6 @@ function createBox(index, table) {
       const newY = e.clientY - offsetY;
       box.style.left = newX + 'px';
       box.style.top = newY + 'px';
-      
-      // Log box position and table bounds for debugging
-      const boxRect = box.getBoundingClientRect();
-      const tableRect = document.getElementById('table').getBoundingClientRect();
-      console.log(`Box ${index+1} position:`, {
-        boxLeft: boxRect.left,
-        boxRight: boxRect.right,
-        boxTop: boxRect.top,
-        boxBottom: boxRect.bottom,
-        tableLeft: tableRect.left,
-        tableRight: tableRect.right,
-        tableTop: tableRect.top,
-        tableBottom: tableRect.bottom
-      });
       
       // Throttle updates to server to avoid flooding
       if (!box.lastUpdate || Date.now() - box.lastUpdate > 50) {
@@ -1186,45 +1300,82 @@ function createBox(index, table) {
   });
   
   function startAudio() {
+    // Add user interaction check for Safari
+    if (audioCtx.state === 'suspended') {
+      console.log('Audio context is suspended, attempting to resume');
+      
+      // Try a different approach for Safari - create a temp audio element and play it
+      const tempAudio = new Audio();
+      tempAudio.play().then(() => {
+        console.log('Temporary audio played to unlock context');
+        tempAudio.pause();
+      }).catch(e => console.log('Could not play temp audio:', e));
+    }
+
     // Ensure we have a user gesture & audioCtx is resumed
     audioCtx.resume().then(() => {
-      if (!sourceNode) {
-        sourceNode = audioCtx.createBufferSource();
-        sourceNode.buffer = audioBuffers[index];
-        sourceNode.loop = true;
+      console.log('Audio context resumed successfully');
+      
+      // Add a small delay to ensure everything is properly initialized
+      setTimeout(() => {
+        // Check if audio buffer is loaded
+        if (!audioBuffers[index]) {
+          console.error(`Audio buffer for box ${index + 1} is not loaded yet`);
+          // Try again in 500ms
+          setTimeout(() => startAudio(), 500);
+          return;
+        }
+      
+        if (!sourceNode) {
+          sourceNode = audioCtx.createBufferSource();
+          sourceNode.buffer = audioBuffers[index];
+          sourceNode.loop = true;
 
-        // Pitch control
-        sourceNode.playbackRate.value = 1.0;
+          // Pitch control
+          sourceNode.playbackRate.value = 1.0;
 
-        // Connect source to gain
-        sourceNode.connect(gainNode);
-        
-        // Setup initial effect if one is selected
-        if (effectSelect.value !== 'none') {
-          // First make sure any previous effect is cleaned up
-          cleanupEffect();
+          // Connect source to gain
+          sourceNode.connect(gainNode);
           
-          // Ensure basic routing is set up
-          setupAudioRouting();
-          
-          // Then set up the new effect
-          setTimeout(() => {
-            setupEffect(effectSelect.value);
+          // Setup initial effect if one is selected
+          if (effectSelect.value !== 'none') {
+            // First make sure any previous effect is cleaned up
+            cleanupEffect();
             
+            // Ensure basic routing is set up
+            setupAudioRouting();
+            
+            // Then set up the new effect
+            setupEffect(effectSelect.value);
+              
             // Apply the current mix value
             const mixValue = mixSlider.value / 100;
             applyMix(mixValue);
-          }, 100);
-        }
+          }
 
-        sourceNode.start(0);
-      }
-      // Set the gain based on the current slider value
-      const volume = volumeSlider.value / 100;
-      // Fade in
-      gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
-      gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.5);
+          try {
+            sourceNode.start(0);
+            console.log(`Started audio for box ${index + 1}`);
+          } catch (e) {
+            console.error(`Error starting audio for box ${index + 1}:`, e);
+            sourceNode = null;
+            // Try again after a short delay
+            setTimeout(() => startAudio(), 200);
+            return;
+          }
+        }
+        
+        // Set the gain based on the current slider value
+        const volume = volumeSlider.value / 100;
+        // Fade in
+        gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.5);
+      }, 50);
+    }).catch(error => {
+      console.error('Error resuming audio context:', error);
+      // Try again after a short delay
+      setTimeout(() => startAudio(), 200);
     });
   }
   
@@ -1260,3 +1411,29 @@ document.addEventListener('click', (e) => {
     activeBoxForDebug = null;
   }
 });
+
+// Add a fallback mechanism to ensure boxes are created even if audio doesn't load
+// This will create boxes after 3 seconds if they haven't been created yet
+setTimeout(() => {
+  if (!boxesCreated) {
+    console.log('Creating boxes via fallback timer - audio may not be loaded yet');
+    createBoxes();
+    createSessionDisplay();
+    boxesCreated = true;
+  }
+}, 3000);
+
+// Add extra check for Safari to ensure boxes render
+if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf('Chrome') === -1) {
+  console.log('Safari detected, applying special box rendering fix');
+  // Safari-specific rendering fix
+  setTimeout(() => {
+    document.querySelectorAll('.box').forEach((box, index) => {
+      // Force repaint
+      box.style.display = 'none';
+      setTimeout(() => {
+        box.style.display = 'flex';
+      }, 10);
+    });
+  }, 1000);
+}

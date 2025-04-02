@@ -1,7 +1,7 @@
 {
   "name": "buddha-boxing",
   "version": "1.0.0",
-  "description": "Audio effects application with multi-user capabilities",
+  "description": "Session board for sonic saturation.",
   "main": "server.js",
   "scripts": {
     "prestart": "rm -rf node_modules/.cache || true",
