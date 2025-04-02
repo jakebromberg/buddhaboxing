@@ -1,27 +1,33 @@
 {
   "name": "buddha-boxing",
-  "version": "0.1.0",
-  "description": "Sound palette",
+  "version": "1.0.0",
+  "description": "Interactive audio mixing with multiple audio loops and effects",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/jakebromberg/buddhaboxing.git"
   },
-  "author": "Left of Age",
-  "license": "ACSL",
+  "author": "",
+  "license": "MIT",
   "homepage": "https://github.com/jakebromberg/buddhaboxing",
-  "dependencies": {
-    "express": "^4.17.1",
-    "socket.io": "^4.8.1"
-  },
-  "devDependencies": {
-    "nodemon": "^2.0.4"
-  },
-  "keywords": [],
+  "keywords": [
+    "web-audio",
+    "effects",
+    "interactive",
+    "socketio"
+  ],
   "bugs": {
     "url": "https://github.com/jakebromberg/buddhaboxing/issues"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   }
 }
