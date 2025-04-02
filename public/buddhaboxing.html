@@ -28,7 +28,7 @@
     .box:hover {
       box-shadow: 0 6px 12px rgba(0,0,0,0.3);
     }
-    .volume-control {
+    .volume-control, .mix-control {
       width: 80px;
       height: 10px;
       margin-bottom: 5px;
@@ -40,197 +40,30 @@
       color: rgba(255,255,255,0.8);
       text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
     }
+    .effect-select {
+      width: 80px;
+      font-size: 8px;
+      margin-bottom: 5px;
+      background-color: rgba(255,255,255,0.8);
+      border: none;
+      border-radius: 3px;
+      padding: 2px;
+    }
+    .control-label {
+      font-size: 8px;
+      color: rgba(255,255,255,0.8);
+      text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+      margin-bottom: 1px;
+    }
   </style>
+  <!-- Add Tuna.js -->
+  <script src="https://cdn.jsdelivr.net/npm/tunajs@1.0.14/tuna-min.js"></script>
+  <!-- Add our client code -->
+  <script src="client.js" defer></script>
 </head>
 <body>
 
 <div id="table"></div>
-
-<script>
-  // 1. Audio Context
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  
-  // Box colors (9 distinct colors)
-  const boxColors = [
-    '#FF6B6B', // red
-    '#4ECDC4', // teal
-    '#FFD166', // yellow
-    '#6B5B95', // purple
-    '#88D8B0', // green
-    '#FF8C94', // pink
-    '#5D98D2', // blue
-    '#E6AA68', // orange
-    '#A5AAA3'  // gray
-  ];
-
-  // 2. Load all audio files
-  const audioFiles = ['01', '02', '03', '04', '05', '06', '07', '08', '09'];
-  const audioBuffers = new Array(audioFiles.length);
-  let loadedCount = 0;
-
-  audioFiles.forEach((file, index) => {
-    fetch(`loops/${file}.m4a`)
-      .then(response => response.arrayBuffer())
-      .then(arrayBuffer => audioCtx.decodeAudioData(arrayBuffer))
-      .then(decodedData => {
-        audioBuffers[index] = decodedData;
-        loadedCount++;
-        if (loadedCount === audioFiles.length) {
-          createBoxes();
-        }
-      });
-  });
-
-  function createBoxes() {
-    const table = document.getElementById('table');
-    const tableRect = table.getBoundingClientRect();
-    
-    // Create a box for each audio file
-    audioFiles.forEach((file, index) => {
-      createBox(index, tableRect);
-    });
-  }
-
-  function createBox(index, tableRect) {
-    // Create box element
-    const box = document.createElement('div');
-    box.classList.add('box');
-    box.style.backgroundColor = boxColors[index];
-    
-    // Add box number
-    const boxNumber = document.createElement('div');
-    boxNumber.classList.add('box-number');
-    boxNumber.textContent = (index + 1).toString().padStart(2, '0');
-    box.appendChild(boxNumber);
-    
-    // Add volume slider
-    const volumeSlider = document.createElement('input');
-    volumeSlider.type = 'range';
-    volumeSlider.min = 0;
-    volumeSlider.max = 100;
-    volumeSlider.value = 100;
-    volumeSlider.classList.add('volume-control');
-    box.appendChild(volumeSlider);
-    
-    // Position box outside the table initially
-    const leftPosition = -120 - (index * 20); // Cascade boxes to the left
-    box.style.left = `${leftPosition}px`;
-    box.style.top = `${20 + (index * 40)}px`; // Stack vertically with some space between
-    
-    // Add box to table
-    const table = document.getElementById('table');
-    table.appendChild(box);
-    
-    // Setup audio nodes for this box
-    let sourceNode = null;
-    let gainNode = audioCtx.createGain();
-    gainNode.gain.value = 0; // start muted
-    gainNode.connect(audioCtx.destination);
-    
-    // Volume control
-    volumeSlider.addEventListener('input', (e) => {
-      // Only adjust volume if box is inside the table and audio is playing
-      if (sourceNode) {
-        const volume = e.target.value / 100;
-        gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-        gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.1);
-      }
-      // Prevent the drag event when adjusting volume
-      e.stopPropagation();
-    });
-    
-    function startAudio() {
-      // Ensure we have a user gesture & audioCtx is resumed
-      audioCtx.resume().then(() => {
-        if (!sourceNode) {
-          sourceNode = audioCtx.createBufferSource();
-          sourceNode.buffer = audioBuffers[index];
-          sourceNode.loop = true;
-
-          // Pitch control
-          sourceNode.playbackRate.value = 1.0;
-
-          // Connect
-          sourceNode.connect(gainNode);
-
-          sourceNode.start(0);
-        }
-        // Set the gain based on the current slider value
-        const volume = volumeSlider.value / 100;
-        // Fade in
-        gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-        gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.5);
-      });
-    }
-
-    function stopAudio() {
-      // Fade out
-      gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-      gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
-      gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
-
-      // Stop source after fade
-      setTimeout(() => {
-        if (sourceNode) {
-          sourceNode.stop();
-          sourceNode.disconnect();
-          sourceNode = null;
-        }
-      }, 600); // slightly more than 0.5s
-    }
-    
-    // Drag logic
-    let isDragging = false;
-    let offsetX, offsetY;
-
-    box.addEventListener('pointerdown', (e) => {
-      // Don't initiate drag if clicking on the volume slider
-      if (e.target === volumeSlider) {
-        return;
-      }
-      
-      isDragging = true;
-      offsetX = e.clientX - box.offsetLeft;
-      offsetY = e.clientY - box.offsetTop;
-      box.setPointerCapture(e.pointerId);
-      box.style.zIndex = 10; // Bring to front when dragging
-    });
-
-    box.addEventListener('pointermove', (e) => {
-      if (isDragging) {
-        box.style.left = (e.clientX - offsetX) + 'px';
-        box.style.top = (e.clientY - offsetY) + 'px';
-      }
-    });
-
-    box.addEventListener('pointerup', (e) => {
-      isDragging = false;
-      box.releasePointerCapture(e.pointerId);
-      box.style.zIndex = 1;
-
-      // Check if box is within the table boundaries
-      const tableRect = table.getBoundingClientRect();
-      const boxRect = box.getBoundingClientRect();
-
-      const insideTable = (
-        boxRect.left >= tableRect.left &&
-        boxRect.right <= tableRect.right &&
-        boxRect.top >= tableRect.top &&
-        boxRect.bottom <= tableRect.bottom
-      );
-
-      if (insideTable) {
-        // Start or maintain audio
-        startAudio();
-      } else {
-        // Stop or fade out audio
-        stopAudio();
-      }
-    });
-  }
-</script>
 
 </body>
 </html>
