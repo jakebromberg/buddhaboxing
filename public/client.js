@@ -74,6 +74,8 @@ socket.on('initialState', (data) => {
 let boxPositionsFromServer = null;
 let createdBoxes = [];
 let syncEnabled = true;
+let lastUpdateTime = 0;
+const UPDATE_INTERVAL = 1000 / 30; // 30 FPS for smooth updates
 
 // 1. Audio Context
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1096,123 +1098,36 @@ function createBox(index, table) {
     }
   }
   
-  // Drag logic
+  // Add drag functionality with smooth updates
   let isDragging = false;
-  let hasMoved = false; // Track if the box has been moved during drag
-  let offsetX, offsetY;
-
-  box.addEventListener('pointerdown', (e) => {
-    // Don't initiate drag if clicking on controls
-    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider ||
-        e.target.closest('.param-slider')) {
-      return;
-    }
-    
+  let startX, startY, initialX, initialY;
+  
+  box.addEventListener('mousedown', (e) => {
     isDragging = true;
-    hasMoved = false; // Reset the movement flag
-    offsetX = e.clientX - box.offsetLeft;
-    offsetY = e.clientY - box.offsetTop;
-    box.setPointerCapture(e.pointerId);
+    startX = e.clientX - box.offsetLeft;
+    startY = e.clientY - box.offsetTop;
+    initialX = box.offsetLeft;
+    initialY = box.offsetTop;
     
-    // If the box isn't expanded, do not consider this a drag yet
-    // Give the user a chance to click to expand
-    if (!box.classList.contains('expanded')) {
-      // Wait a bit to see if this is a drag or just a click
-      setTimeout(() => {
-        if (isDragging) {
-          box.style.zIndex = 10; // Bring to front when dragging
-        }
-      }, 150);
-    } else {
-      box.style.zIndex = 10; // Bring to front when dragging
-    }
-  });
-
-  box.addEventListener('pointermove', (e) => {
-    if (isDragging) {
-      hasMoved = true; // Mark that movement has occurred
-      const newX = e.clientX - offsetX;
-      const newY = e.clientY - offsetY;
-      box.style.left = newX + 'px';
-      box.style.top = newY + 'px';
-      
-      // Throttle updates to server to avoid flooding
-      if (!box.lastUpdate || Date.now() - box.lastUpdate > 50) {
-        sendBoxUpdate({ newX, newY });
-        box.lastUpdate = Date.now();
-      }
-    }
-  });
-
-  box.addEventListener('pointerup', (e) => {
-    if (isDragging) {
-      isDragging = false;
-      box.releasePointerCapture(e.pointerId);
-      box.style.zIndex = 1;
-      
-      // Check if box is within the table boundaries
-      const tableRect = table.getBoundingClientRect();
-      const boxRect = box.getBoundingClientRect();
-      
-      const insideTable = (
-        boxRect.left >= tableRect.left &&
-        boxRect.right <= tableRect.right &&
-        boxRect.top >= tableRect.top &&
-        boxRect.bottom <= tableRect.bottom
-      );
-      
-      // Final position update with high priority
-      sendBoxUpdate({
-        newX: parseFloat(box.style.left),
-        newY: parseFloat(box.style.top),
-        insideTable
-      });
-      
-      if (insideTable) {
-        // Start or maintain audio
-        startAudio();
-      } else {
-        // Stop or fade out audio
-        stopAudio();
-      }
-    }
+    // Start smooth position updates
+    updateBoxPosition(box, index);
   });
   
-  // Replace click handler with a more specific handler that only 
-  // triggers when there was no movement during the pointerdown/up cycle
-  box.addEventListener('click', (e) => {
-    // Don't do anything if clicking on controls
-    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider ||
-        e.target.closest('.param-slider')) {
-      return;
-    }
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
     
-    // Only toggle expanded state if this wasn't a drag operation
-    if (!hasMoved) {
-      // Toggle expanded class
-      const wasExpanded = box.classList.contains('expanded');
-      box.classList.toggle('expanded');
-      
-      // Show/hide controls
-      if (!wasExpanded) {
-        // Show controls when expanding
-        controlsContainer.style.opacity = '1';
-        
-        // Adjust box size based on the current effect
-        adjustBoxSize(effectSelect.value);
-      } else {
-        // Hide controls when collapsing
-        controlsContainer.style.opacity = '0';
-        
-        // Reset to default size when collapsing
-        box.style.height = '40px';
-      }
-    }
+    e.preventDefault();
+    const newX = e.clientX - startX;
+    const newY = e.clientY - startY;
     
-    // Prevent propagation
-    e.stopPropagation();
+    box.style.left = `${newX}px`;
+    box.style.top = `${newY}px`;
   });
-
+  
+  document.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+  
   // Setup audio nodes for this box
   let sourceNode = null;
   let gainNode = audioCtx.createGain();
@@ -1327,6 +1242,12 @@ function createBox(index, table) {
   function sendBoxUpdate(options = {}) {
     if (!syncEnabled) return;
     
+    const currentTime = performance.now();
+    if (currentTime - lastUpdateTime < UPDATE_INTERVAL) {
+      return; // Skip if not enough time has passed
+    }
+    lastUpdateTime = currentTime;
+    
     const defaultOptions = {
       boxId: index,
       newX: parseFloat(box.style.left),
@@ -1335,6 +1256,28 @@ function createBox(index, table) {
     
     const updateData = { ...defaultOptions, ...options, sessionId };
     socket.emit('updateBox', updateData);
+  }
+  
+  // Add smooth update function
+  function updateBoxPosition(box, boxId) {
+    if (!syncEnabled) return;
+    
+    const currentTime = performance.now();
+    if (currentTime - lastUpdateTime < UPDATE_INTERVAL) {
+      requestAnimationFrame(() => updateBoxPosition(box, boxId));
+      return;
+    }
+    lastUpdateTime = currentTime;
+    
+    const updateData = {
+      boxId: boxId,
+      newX: parseFloat(box.style.left),
+      newY: parseFloat(box.style.top),
+      sessionId: sessionId
+    };
+    
+    socket.emit('updateBox', updateData);
+    requestAnimationFrame(() => updateBoxPosition(box, boxId));
   }
   
   // Apply the dry/wet mix
