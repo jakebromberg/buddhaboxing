@@ -18,9 +18,27 @@
       border-radius: 8px;
       box-shadow: 0 4px 8px rgba(0,0,0,0.2);
       transition: box-shadow 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px;
+      box-sizing: border-box;
     }
     .box:hover {
       box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+    }
+    .volume-control {
+      width: 80px;
+      height: 10px;
+      margin-bottom: 5px;
+      cursor: pointer;
+    }
+    .box-number {
+      font-family: Arial, sans-serif;
+      font-weight: bold;
+      color: rgba(255,255,255,0.8);
+      text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
     }
   </style>
 </head>
@@ -79,6 +97,21 @@
     box.classList.add('box');
     box.style.backgroundColor = boxColors[index];
     
+    // Add box number
+    const boxNumber = document.createElement('div');
+    boxNumber.classList.add('box-number');
+    boxNumber.textContent = (index + 1).toString().padStart(2, '0');
+    box.appendChild(boxNumber);
+    
+    // Add volume slider
+    const volumeSlider = document.createElement('input');
+    volumeSlider.type = 'range';
+    volumeSlider.min = 0;
+    volumeSlider.max = 100;
+    volumeSlider.value = 100;
+    volumeSlider.classList.add('volume-control');
+    box.appendChild(volumeSlider);
+    
     // Position box outside the table initially
     const leftPosition = -120 - (index * 20); // Cascade boxes to the left
     box.style.left = `${leftPosition}px`;
@@ -93,6 +126,19 @@
     let gainNode = audioCtx.createGain();
     gainNode.gain.value = 0; // start muted
     gainNode.connect(audioCtx.destination);
+    
+    // Volume control
+    volumeSlider.addEventListener('input', (e) => {
+      // Only adjust volume if box is inside the table and audio is playing
+      if (sourceNode) {
+        const volume = e.target.value / 100;
+        gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+        gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.1);
+      }
+      // Prevent the drag event when adjusting volume
+      e.stopPropagation();
+    });
     
     function startAudio() {
       // Ensure we have a user gesture & audioCtx is resumed
@@ -110,10 +156,12 @@
 
           sourceNode.start(0);
         }
+        // Set the gain based on the current slider value
+        const volume = volumeSlider.value / 100;
         // Fade in
         gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
         gainNode.gain.setValueAtTime(gainNode.gain.value, audioCtx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(1.0, audioCtx.currentTime + 0.5);
+        gainNode.gain.linearRampToValueAtTime(volume, audioCtx.currentTime + 0.5);
       });
     }
 
@@ -138,6 +186,11 @@
     let offsetX, offsetY;
 
     box.addEventListener('pointerdown', (e) => {
+      // Don't initiate drag if clicking on the volume slider
+      if (e.target === volumeSlider) {
+        return;
+      }
+      
       isDragging = true;
       offsetX = e.clientX - box.offsetLeft;
       offsetY = e.clientY - box.offsetTop;
