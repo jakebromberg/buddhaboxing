@@ -52,6 +52,10 @@
       font-weight: bold;
       text-align: center;
       margin-bottom: 15px; /* Increased margin */
+      user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
     }
     
     .control-label {
@@ -115,5 +119,12 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tunajs@1.0.11/tuna-min.js"></script>
   <script src="client.js"></script>
+  <script>
+    // Hot reload support
+    const socket = io();
+    socket.on('reload', () => {
+      window.location.reload();
+    });
+  </script>
 </body>
 </html> 

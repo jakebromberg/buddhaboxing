@@ -82,6 +82,14 @@ io.on('connection', (socket) => {
   });
 });
 
+// Development mode hot reload endpoint
+if (process.env.NODE_ENV === 'development') {
+  app.post('/reload', (req, res) => {
+    io.emit('reload');
+    res.send('Reloading...');
+  });
+}
+
 // Start the server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

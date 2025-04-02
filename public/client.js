@@ -1055,6 +1055,68 @@ function createBox(index, table) {
   // Add box to body instead of table
   document.body.appendChild(box);
   
+  // Add drag functionality with smooth updates
+  let isDragging = false;
+  let startX, startY, initialX, initialY;
+  let hasDragged = false; // New flag to track if a drag occurred
+  
+  box.addEventListener('mousedown', (e) => {
+    // Don't start dragging if clicking on controls
+    if (e.target === effectSelect || e.target === mixSlider || e.target === volumeSlider || 
+        e.target.closest('select') || e.target.closest('input')) {
+      return;
+    }
+    
+    isDragging = true;
+    hasDragged = false; // Reset drag flag on mousedown
+    startX = e.clientX - box.offsetLeft;
+    startY = e.clientY - box.offsetTop;
+    initialX = box.offsetLeft;
+    initialY = box.offsetTop;
+    
+    // Start smooth position updates
+    updateBoxPosition(box, index);
+  });
+  
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    
+    e.preventDefault();
+    const newX = e.clientX - startX;
+    const newY = e.clientY - startY;
+    
+    // Check if we've actually moved
+    if (Math.abs(newX - initialX) > 5 || Math.abs(newY - initialY) > 5) {
+      hasDragged = true;
+    }
+    
+    box.style.left = `${newX}px`;
+    box.style.top = `${newY}px`;
+  });
+  
+  document.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+  
+  // Add click handler to expand/collapse box
+  box.addEventListener('click', (e) => {
+    // Don't expand if we've dragged
+    if (hasDragged) return;
+    
+    // Don't expand if clicking on controls
+    if (e.target === effectSelect || e.target === mixSlider || e.target === volumeSlider) return;
+    
+    // Toggle expanded state
+    box.classList.toggle('expanded');
+    
+    // Show/hide controls container
+    const controlsContainer = box.querySelector('.controls-container');
+    controlsContainer.style.opacity = box.classList.contains('expanded') ? '1' : '0';
+    
+    // Adjust box size based on current effect
+    adjustBoxSize(effectSelect.value);
+  });
+  
   // Function to adjust box size based on effect parameters
   function adjustBoxSize(effectName) {
     // Create parameters for the selected effect
@@ -1081,6 +1143,8 @@ function createBox(index, table) {
       
       if (box.classList.contains('expanded')) {
         box.style.height = `${newHeight}px`;
+      } else {
+        box.style.height = '40px';
       }
     } else {
       // Hide parameters section when no effect is selected or no parameters
@@ -1094,39 +1158,11 @@ function createBox(index, table) {
         // Add extra height if we have the mix control but no parameters
         const mixHeight = effectName !== 'none' ? 60 : 0; // Reduced from 100 to 60
         box.style.height = `${baseHeight + mixHeight}px`;
+      } else {
+        box.style.height = '40px';
       }
     }
   }
-  
-  // Add drag functionality with smooth updates
-  let isDragging = false;
-  let startX, startY, initialX, initialY;
-  
-  box.addEventListener('mousedown', (e) => {
-    isDragging = true;
-    startX = e.clientX - box.offsetLeft;
-    startY = e.clientY - box.offsetTop;
-    initialX = box.offsetLeft;
-    initialY = box.offsetTop;
-    
-    // Start smooth position updates
-    updateBoxPosition(box, index);
-  });
-  
-  document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-    
-    e.preventDefault();
-    const newX = e.clientX - startX;
-    const newY = e.clientY - startY;
-    
-    box.style.left = `${newX}px`;
-    box.style.top = `${newY}px`;
-  });
-  
-  document.addEventListener('mouseup', () => {
-    isDragging = false;
-  });
   
   // Setup audio nodes for this box
   let sourceNode = null;
