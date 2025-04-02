@@ -67,40 +67,6 @@ const nativeEffects = {
       }}
     }
   },
-  'biquad-lowpass': {
-    create: () => {
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 800;
-      filter.Q.value = 1;
-      return filter;
-    },
-    params: {
-      frequency: { min: 20, max: 20000, default: 800, callback: (effect, value) => {
-        effect.frequency.setValueAtTime(value, audioCtx.currentTime);
-      }},
-      Q: { min: 0.1, max: 20, default: 1, callback: (effect, value) => {
-        effect.Q.setValueAtTime(value, audioCtx.currentTime);
-      }}
-    }
-  },
-  'biquad-highpass': {
-    create: () => {
-      const filter = audioCtx.createBiquadFilter();
-      filter.type = 'highpass';
-      filter.frequency.value = 1200;
-      filter.Q.value = 1;
-      return filter;
-    },
-    params: {
-      frequency: { min: 20, max: 20000, default: 1200, callback: (effect, value) => {
-        effect.frequency.setValueAtTime(value, audioCtx.currentTime);
-      }},
-      Q: { min: 0.1, max: 20, default: 1, callback: (effect, value) => {
-        effect.Q.setValueAtTime(value, audioCtx.currentTime);
-      }}
-    }
-  },
   'delay': {
     create: () => {
       const delay = audioCtx.createDelay();
@@ -126,18 +92,6 @@ const nativeEffects = {
       }},
       feedback: { min: 0, max: 0.9, default: 0.4, callback: (effect, value) => {
         effect._feedback.gain.setValueAtTime(value, audioCtx.currentTime);
-      }}
-    }
-  },
-  'stereo-panner': {
-    create: () => {
-      const panner = audioCtx.createStereoPanner();
-      panner.pan.value = 0.5;
-      return panner;
-    },
-    params: {
-      pan: { min: -1, max: 1, default: 0.5, callback: (effect, value) => {
-        effect.pan.setValueAtTime(value, audioCtx.currentTime);
       }}
     }
   },
@@ -185,6 +139,267 @@ const nativeEffects = {
         
         effect.buffer = impulse;
         effect._decay = decay;
+      }}
+    }
+  },
+  'flanger': {
+    create: () => {
+      // Create delay node for flanger
+      const delay = audioCtx.createDelay();
+      delay.delayTime.value = 0.005; // 5ms initial delay
+      
+      // Create LFO to modulate delay time
+      const lfo = audioCtx.createOscillator();
+      const lfoGain = audioCtx.createGain();
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.5; // 0.5Hz LFO - slow flanger
+      lfoGain.gain.value = 0.002; // Modulation depth
+      
+      // Connect LFO to delay time
+      lfo.connect(lfoGain);
+      lfoGain.connect(delay.delayTime);
+      lfo.start(0);
+      
+      // Feedback path
+      const feedback = audioCtx.createGain();
+      feedback.gain.value = 0.6; // Medium feedback
+      
+      // Connect feedback loop
+      delay.connect(feedback);
+      feedback.connect(delay);
+      
+      // Mixer for flanger intensity
+      const flangerIntensity = audioCtx.createGain();
+      flangerIntensity.gain.value = 0.7; // Default intensity
+      
+      const output = audioCtx.createGain();
+      
+      // Connect the direct and delayed signals to output
+      delay.connect(flangerIntensity);
+      flangerIntensity.connect(output);
+      
+      return {
+        input: delay,
+        output: output,
+        _delay: delay,
+        _lfo: lfo,
+        _feedback: feedback,
+        _flangerIntensity: flangerIntensity
+      };
+    },
+    params: {
+      rate: { min: 0.05, max: 5, default: 0.5, callback: (effect, value) => {
+        effect._lfo.frequency.setValueAtTime(value, audioCtx.currentTime);
+      }},
+      depth: { min: 0.0001, max: 0.01, default: 0.002, callback: (effect, value) => {
+        // Scale for better UI control
+        effect._lfo.frequency.cancelScheduledValues(audioCtx.currentTime);
+        effect._lfo.frequency.setValueAtTime(effect._lfo.frequency.value, audioCtx.currentTime);
+        effect._lfo.connect(effect._delay.delayTime);
+      }},
+      feedback: { min: 0, max: 0.9, default: 0.6, callback: (effect, value) => {
+        effect._feedback.gain.setValueAtTime(value, audioCtx.currentTime);
+      }},
+      intensity: { min: 0, max: 1, default: 0.7, callback: (effect, value) => {
+        effect._flangerIntensity.gain.setValueAtTime(value, audioCtx.currentTime);
+      }}
+    }
+  },
+  'stereo-chorus': {
+    create: () => {
+      // Create two delay lines for stereo effect
+      const delayLeft = audioCtx.createDelay();
+      const delayRight = audioCtx.createDelay();
+      delayLeft.delayTime.value = 0.025; // 25ms initial delay
+      delayRight.delayTime.value = 0.027; // slightly different for stereo
+      
+      // Create two LFOs for left and right channels
+      const lfoLeft = audioCtx.createOscillator();
+      const lfoRight = audioCtx.createOscillator();
+      const lfoGainLeft = audioCtx.createGain();
+      const lfoGainRight = audioCtx.createGain();
+      
+      lfoLeft.type = 'sine';
+      lfoRight.type = 'sine';
+      lfoLeft.frequency.value = 0.33;  // 0.33Hz - slow chorus
+      lfoRight.frequency.value = 0.38; // slightly different for more stereo width
+      
+      lfoGainLeft.gain.value = 0.005;  // Modulation depth
+      lfoGainRight.gain.value = 0.006; // slightly different depth
+      
+      // Connect LFOs to delay times
+      lfoLeft.connect(lfoGainLeft);
+      lfoRight.connect(lfoGainRight);
+      lfoGainLeft.connect(delayLeft.delayTime);
+      lfoGainRight.connect(delayRight.delayTime);
+      lfoLeft.start(0);
+      lfoRight.start(0);
+      
+      // Create channel splitter and merger for stereo processing
+      const splitter = audioCtx.createChannelSplitter(2);
+      const merger = audioCtx.createChannelMerger(2);
+      
+      // Create mixing gains
+      const chorusGain = audioCtx.createGain();
+      chorusGain.gain.value = 0.5; // 50% wet by default
+      
+      // Create input and output nodes
+      const input = audioCtx.createGain();
+      const output = audioCtx.createGain();
+      
+      // Connect everything
+      input.connect(splitter);
+      input.connect(output); // Direct signal
+      
+      // Left channel processing
+      splitter.connect(delayLeft, 0);
+      delayLeft.connect(merger, 0, 0);
+      
+      // Right channel processing
+      splitter.connect(delayRight, 1);
+      delayRight.connect(merger, 0, 1);
+      
+      // Mix processed signal with direct
+      merger.connect(chorusGain);
+      chorusGain.connect(output);
+      
+      return {
+        input: input,
+        output: output,
+        _delayLeft: delayLeft,
+        _delayRight: delayRight,
+        _lfoLeft: lfoLeft,
+        _lfoRight: lfoRight,
+        _chorusGain: chorusGain
+      };
+    },
+    params: {
+      rate: { min: 0.05, max: 2, default: 0.33, callback: (effect, value) => {
+        // Set slightly different rates for L/R
+        effect._lfoLeft.frequency.setValueAtTime(value, audioCtx.currentTime);
+        effect._lfoRight.frequency.setValueAtTime(value * 1.15, audioCtx.currentTime);
+      }},
+      depth: { min: 0.001, max: 0.02, default: 0.005, callback: (effect, value) => {
+        // Different depths for L/R
+        const lfoGainLeft = effect._lfoLeft.connect(effect._delayLeft.delayTime);
+        const lfoGainRight = effect._lfoRight.connect(effect._delayRight.delayTime);
+        if (lfoGainLeft) lfoGainLeft.gain.setValueAtTime(value, audioCtx.currentTime);
+        if (lfoGainRight) lfoGainRight.gain.setValueAtTime(value * 1.2, audioCtx.currentTime);
+      }},
+      mix: { min: 0, max: 1, default: 0.5, callback: (effect, value) => {
+        effect._chorusGain.gain.setValueAtTime(value, audioCtx.currentTime);
+      }}
+    }
+  },
+  'bitcrusher': {
+    create: () => {
+      // We need to use ScriptProcessorNode for bitcrushing
+      // (Yes, it's deprecated but it's the simplest way to do this)
+      const bufferSize = 4096;
+      const crusher = audioCtx.createScriptProcessor(bufferSize, 2, 2);
+      
+      // Set default values
+      crusher.bits = 8;        // Bit depth 
+      crusher.normFreq = 0.15; // Normalized frequency (1=sample rate, 0.5=half sample rate)
+      crusher.step = Math.pow(0.5, crusher.bits);
+      crusher._lastValues = [0, 0]; // Store last values for sample rate reduction
+      
+      // The actual bitcrushing logic
+      crusher.onaudioprocess = (e) => {
+        const inputL = e.inputBuffer.getChannelData(0);
+        const inputR = e.inputBuffer.getChannelData(1);
+        const outputL = e.outputBuffer.getChannelData(0);
+        const outputR = e.outputBuffer.getChannelData(1);
+        
+        // Calculate parameters from properties
+        const step = Math.pow(0.5, crusher.bits);
+        const phaseIncr = crusher.normFreq;
+        
+        // Process samples
+        for (let i = 0; i < bufferSize; i++) {
+          // Check if we need to compute a new sample (sample rate reduction)
+          if ((i % Math.floor(1/phaseIncr)) === 0) {
+            // Apply bit depth reduction by quantizing to steps
+            crusher._lastValues[0] = Math.round(inputL[i] / step) * step;
+            crusher._lastValues[1] = Math.round(inputR[i] / step) * step;
+          }
+          
+          // Copy reduced values to output
+          outputL[i] = crusher._lastValues[0];
+          outputR[i] = crusher._lastValues[1];
+        }
+      };
+      
+      return crusher;
+    },
+    params: {
+      bits: { min: 1, max: 16, default: 8, callback: (effect, value) => {
+        effect.bits = value;
+        effect.step = Math.pow(0.5, value);
+      }},
+      frequency: { min: 0.01, max: 1, default: 0.15, callback: (effect, value) => {
+        effect.normFreq = value;
+      }}
+    }
+  },
+  'ring-modulator': {
+    create: () => {
+      // Create oscillator for modulation
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = 440; // 440Hz - "A" note
+      
+      // Create gain node for math operations
+      const modulationGain = audioCtx.createGain();
+      modulationGain.gain.value = 1.0;
+      
+      // Connect oscillator to gain
+      osc.connect(modulationGain);
+      osc.start(0);
+      
+      // Create actual ring modulator using a gain node
+      // Ring modulation works by multiplying the audio signal by a sine wave
+      const ringMod = audioCtx.createGain();
+      
+      // Create worklet to do the multiplication
+      const bufferSize = 4096;
+      const modulator = audioCtx.createScriptProcessor(bufferSize, 2, 2);
+      modulator._ringFreq = 440;
+      modulator._depth = 1.0;
+      
+      modulator.onaudioprocess = (e) => {
+        const inputL = e.inputBuffer.getChannelData(0);
+        const inputR = e.inputBuffer.getChannelData(1);
+        const outputL = e.outputBuffer.getChannelData(0);
+        const outputR = e.outputBuffer.getChannelData(1);
+        
+        // Perform the ring modulation
+        for (let i = 0; i < bufferSize; i++) {
+          // Generate modulator signal
+          const mod = Math.sin(2 * Math.PI * modulator._ringFreq * i / audioCtx.sampleRate);
+          
+          // Apply depth - mix between modulated and original signal
+          const modDepth = modulator._depth;
+          const origDepth = 1 - modDepth;
+          
+          // Apply modulation and write to output
+          outputL[i] = (inputL[i] * mod * modDepth) + (inputL[i] * origDepth);
+          outputR[i] = (inputR[i] * mod * modDepth) + (inputR[i] * origDepth);
+        }
+      };
+      
+      return {
+        input: modulator,
+        output: modulator,
+        _modulator: modulator
+      };
+    },
+    params: {
+      frequency: { min: 50, max: 5000, default: 440, callback: (effect, value) => {
+        effect._modulator._ringFreq = value;
+      }},
+      depth: { min: 0, max: 1, default: 1.0, callback: (effect, value) => {
+        effect._modulator._depth = value;
       }}
     }
   }
