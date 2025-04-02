@@ -52,6 +52,19 @@ const nativeEffects = {
       distortion.curve = curve;
       distortion.oversample = '4x';
       return distortion;
+    },
+    params: {
+      amount: { min: 0, max: 100, default: 50, callback: (effect, value) => {
+        // Recreate distortion curve with new intensity
+        const intensity = value / 10; // Scale from 0-100 to 0-10
+        const curve = new Float32Array(44100);
+        const deg = Math.PI / 180;
+        for (let i = 0; i < 44100; i++) {
+          const x = i * 2 / 44100 - 1;
+          curve[i] = (3 + intensity) * x * 20 * deg / (Math.PI + intensity * Math.abs(x));
+        }
+        effect.curve = curve;
+      }}
     }
   },
   'biquad-lowpass': {
@@ -61,6 +74,14 @@ const nativeEffects = {
       filter.frequency.value = 800;
       filter.Q.value = 1;
       return filter;
+    },
+    params: {
+      frequency: { min: 20, max: 20000, default: 800, callback: (effect, value) => {
+        effect.frequency.setValueAtTime(value, audioCtx.currentTime);
+      }},
+      Q: { min: 0.1, max: 20, default: 1, callback: (effect, value) => {
+        effect.Q.setValueAtTime(value, audioCtx.currentTime);
+      }}
     }
   },
   'biquad-highpass': {
@@ -70,6 +91,14 @@ const nativeEffects = {
       filter.frequency.value = 1200;
       filter.Q.value = 1;
       return filter;
+    },
+    params: {
+      frequency: { min: 20, max: 20000, default: 1200, callback: (effect, value) => {
+        effect.frequency.setValueAtTime(value, audioCtx.currentTime);
+      }},
+      Q: { min: 0.1, max: 20, default: 1, callback: (effect, value) => {
+        effect.Q.setValueAtTime(value, audioCtx.currentTime);
+      }}
     }
   },
   'delay': {
@@ -86,8 +115,18 @@ const nativeEffects = {
       
       return {
         input: delay,
-        output: delay
+        output: delay,
+        _delay: delay,        // Store references to internal nodes
+        _feedback: feedback   // for parameter control
       };
+    },
+    params: {
+      time: { min: 0, max: 1.0, default: 0.3, callback: (effect, value) => {
+        effect._delay.delayTime.setValueAtTime(value, audioCtx.currentTime);
+      }},
+      feedback: { min: 0, max: 0.9, default: 0.4, callback: (effect, value) => {
+        effect._feedback.gain.setValueAtTime(value, audioCtx.currentTime);
+      }}
     }
   },
   'stereo-panner': {
@@ -95,6 +134,11 @@ const nativeEffects = {
       const panner = audioCtx.createStereoPanner();
       panner.pan.value = 0.5;
       return panner;
+    },
+    params: {
+      pan: { min: -1, max: 1, default: 0.5, callback: (effect, value) => {
+        effect.pan.setValueAtTime(value, audioCtx.currentTime);
+      }}
     }
   },
   'reverb': {
@@ -118,7 +162,30 @@ const nativeEffects = {
       }
       
       convolver.buffer = impulse;
+      convolver._decay = decay; // Store for recreation
       return convolver;
+    },
+    params: {
+      decay: { min: 0.1, max: 5.0, default: 2.0, callback: (effect, oldValue, newValue) => {
+        // Need to create a new impulse with the new decay
+        const attack = 0;
+        const decay = newValue;
+        const sampleRate = audioCtx.sampleRate;
+        const length = sampleRate * decay;
+        const impulse = audioCtx.createBuffer(2, length, sampleRate);
+        const impulseL = impulse.getChannelData(0);
+        const impulseR = impulse.getChannelData(1);
+        
+        // Fill the buffer
+        for(let i = 0; i < length; i++) {
+          const n = i / length;
+          impulseL[i] = (Math.random() * 2 - 1) * Math.pow(1 - n, decay);
+          impulseR[i] = (Math.random() * 2 - 1) * Math.pow(1 - n, decay);
+        }
+        
+        effect.buffer = impulse;
+        effect._decay = decay;
+      }}
     }
   }
 };
@@ -126,7 +193,7 @@ const nativeEffects = {
 // Use our native effects instead of Tuna
 const availableEffectPresets = nativeEffects;
 
-// Filter out preset effects that don't exist in this version of Tuna
+// Filter available effects
 function filterAvailableEffects() {
   console.log("Using native Web Audio effects instead of Tuna.js");
   return nativeEffects;
@@ -134,6 +201,76 @@ function filterAvailableEffects() {
 
 // Debug: Log all available Native Web Audio effects
 console.log("Available Native Effects:", Object.keys(nativeEffects));
+
+// Current active box for debugging
+let activeBoxForDebug = null;
+
+// Debug panel elements
+const debugPanel = document.getElementById('debug-panel');
+const paramContainer = document.getElementById('param-container');
+const debugTitle = document.getElementById('debug-title');
+const closeDebugBtn = document.querySelector('#debug-panel .close-btn');
+
+// Close debug panel when clicking the X
+closeDebugBtn.addEventListener('click', () => {
+  debugPanel.classList.remove('active');
+  activeBoxForDebug = null;
+});
+
+// Function to create parameter sliders for the active effect
+function createParamSliders(box, effectName) {
+  // Clear existing sliders
+  paramContainer.innerHTML = '';
+  
+  // Get the effect and its parameters
+  const effect = nativeEffects[effectName];
+  if (!effect || !effect.params) {
+    debugTitle.textContent = `Effect: ${effectName} (No Parameters)`;
+    return;
+  }
+  
+  debugTitle.textContent = `Effect: ${effectName} - Box ${Array.from(createdBoxes).indexOf(box) + 1}`;
+  
+  // Create sliders for each parameter
+  Object.entries(effect.params).forEach(([paramName, paramConfig]) => {
+    const paramContainer = document.createElement('div');
+    paramContainer.classList.add('param-slider');
+    
+    // Create label
+    const label = document.createElement('label');
+    label.textContent = paramName;
+    paramContainer.appendChild(label);
+    
+    // Create slider
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = paramConfig.min;
+    slider.max = paramConfig.max;
+    slider.step = (paramConfig.max - paramConfig.min) / 100;
+    slider.value = paramConfig.default;
+    paramContainer.appendChild(slider);
+    
+    // Create value display
+    const valueDisplay = document.createElement('span');
+    valueDisplay.classList.add('value');
+    valueDisplay.textContent = paramConfig.default;
+    paramContainer.appendChild(valueDisplay);
+    
+    // Event listener for slider
+    slider.addEventListener('input', (e) => {
+      const value = parseFloat(e.target.value);
+      valueDisplay.textContent = value.toFixed(2);
+      
+      // Apply parameter change to the effect
+      if (box.effectNode && paramConfig.callback) {
+        paramConfig.callback(box.effectNode, value);
+      }
+    });
+    
+    // Add to the container
+    document.getElementById('param-container').appendChild(paramContainer);
+  });
+}
 
 // Box colors (9 distinct colors)
 const boxColors = [
@@ -406,6 +543,9 @@ function createBox(index, tableRect) {
   let wetNode = audioCtx.createGain(); // For wet (effected) signal
   let mixerNode = audioCtx.createGain(); // Final output after mixing
   
+  // Store effectNode on the box object for debugging
+  box.effectNode = effectNode;
+  
   // Initialize gain values
   gainNode.gain.value = 0; // start muted
   dryNode.gain.value = 1; // 100% dry by default
@@ -449,6 +589,7 @@ function createBox(index, tableRect) {
         
         // Set to null to ensure garbage collection
         effectNode = null;
+        box.effectNode = null;  // Also clear the reference on the box
         console.log('Previous effect cleaned up');
       } catch (e) {
         console.log('Error disconnecting effect:', e);
@@ -477,6 +618,9 @@ function createBox(index, tableRect) {
       // Create a new effect instance using our factory function
       effectNode = effect.create();
       
+      // Store on the box for parameter control
+      box.effectNode = effectNode;
+      
       // Handle special case for complex effects that have input/output properties
       if (effectNode.input && effectNode.output) {
         // Connect wet path through the effect
@@ -489,9 +633,15 @@ function createBox(index, tableRect) {
       }
       
       console.log(`Effect created and connected: ${effectName}`);
+      
+      // Update debug panel if this box is active
+      if (activeBoxForDebug === box) {
+        createParamSliders(box, effectName);
+      }
     } catch (e) {
       console.error(`Error creating ${effectName} effect:`, e);
       effectNode = null;
+      box.effectNode = null;
     }
   }
   
@@ -712,4 +862,39 @@ function createBox(index, tableRect) {
       }
     }
   });
+
+  // Add click handler for debug mode
+  box.addEventListener('click', (e) => {
+    // Don't activate debug if clicking controls
+    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider) {
+      return;
+    }
+    
+    // Set as active box for debugging
+    activeBoxForDebug = box;
+    
+    // Show debug panel
+    debugPanel.classList.add('active');
+    
+    // Create parameter sliders for current effect
+    if (effectSelect.value !== 'none') {
+      createParamSliders(box, effectSelect.value);
+    } else {
+      debugTitle.textContent = 'No Effect Selected';
+      paramContainer.innerHTML = '';
+    }
+    
+    // Prevent propagation
+    e.stopPropagation();
+  });
 }
+
+// Hide debug panel when clicking elsewhere
+document.addEventListener('click', (e) => {
+  // If clicking outside the debug panel and not on a box
+  if (!debugPanel.contains(e.target) && !e.target.classList.contains('box') && 
+      !e.target.closest('.box')) {
+    debugPanel.classList.remove('active');
+    activeBoxForDebug = null;
+  }
+});

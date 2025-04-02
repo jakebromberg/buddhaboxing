@@ -55,6 +55,65 @@
       text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
       margin-bottom: 1px;
     }
+    
+    /* Debug Panel Styles */
+    #debug-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 10px 20px;
+      font-family: Arial, sans-serif;
+      z-index: 1000;
+      display: none;
+    }
+    
+    #debug-panel.active {
+      display: block;
+    }
+    
+    #debug-panel h3 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    #debug-panel .close-btn {
+      cursor: pointer;
+      font-size: 20px;
+    }
+    
+    .param-sliders {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding-bottom: 10px;
+    }
+    
+    .param-slider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 300px;
+    }
+    
+    .param-slider label {
+      width: 100px;
+      text-align: right;
+      font-size: 14px;
+    }
+    
+    .param-slider input {
+      flex-grow: 1;
+    }
+    
+    .param-slider .value {
+      width: 50px;
+      font-size: 14px;
+    }
   </style>
   <!-- Add Socket.io -->
   <script src="/socket.io/socket.io.js"></script>
@@ -66,6 +125,14 @@
 <body>
 
 <div id="table"></div>
+
+<div id="debug-panel">
+  <h3>
+    <span id="debug-title">Effect Parameters</span>
+    <span class="close-btn">&times;</span>
+  </h3>
+  <div class="param-sliders" id="param-container"></div>
+</div>
 
 </body>
 </html>
