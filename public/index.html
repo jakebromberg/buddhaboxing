@@ -31,18 +31,19 @@
       height: 40px;
       border-radius: 10px;
       cursor: move;
-      padding: 10px;
+      padding: 15px; /* Increased padding */
       box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
       display: flex;
       flex-direction: column;
       justify-content: flex-start;
       z-index: 1;
-      transition: height 0.3s ease;
+      transition: height 0.3s ease, width 0.3s ease;
       overflow: hidden;
     }
     
     .box.expanded {
-      height: 160px;
+      width: 220px; /* Increased width for better display of controls */
+      height: 180px; /* This will be dynamically adjusted in JS */
       z-index: 10;
     }
     
@@ -50,72 +51,54 @@
       font-size: 16px;
       font-weight: bold;
       text-align: center;
-      margin-bottom: 10px;
+      margin-bottom: 15px; /* Increased margin */
     }
     
     .control-label {
-      font-size: 10px;
-      margin-top: 8px;
-      margin-bottom: 2px;
+      font-size: 12px; /* Increased font size */
+      margin-top: 12px; /* Increased margin */
+      margin-bottom: 4px; /* Increased margin */
+      font-weight: bold;
+      color: rgba(255, 255, 255, 0.8);
+      text-transform: uppercase;
     }
     
     input[type="range"], select {
       width: 100%;
       margin: 0;
+      height: 24px; /* Increased slider height */
     }
     
     #debug-panel {
-      position: fixed;
-      top: 10px;
-      left: 10px;
-      width: 300px;
-      background-color: rgba(40, 40, 40, 0.9);
-      border-radius: 8px;
-      padding: 15px;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
-      transform: translateX(-350px);
-      transition: transform 0.3s ease;
-      z-index: 100;
-    }
-    
-    #debug-panel.active {
-      transform: translateX(0);
-    }
-    
-    #debug-title {
-      font-size: 16px;
-      font-weight: bold;
-      margin-bottom: 15px;
-      padding-right: 30px;
+      display: none; /* Hide the debug panel since we've integrated its functionality */
     }
     
     .param-slider {
-      margin-bottom: 15px;
+      margin-bottom: 20px; /* Increased margin for better separation */
+      background-color: rgba(0, 0, 0, 0.2);
+      padding: 12px; /* Increased padding */
+      border-radius: 8px;
     }
     
     .param-slider label {
       display: block;
-      margin-bottom: 5px;
-      font-size: 14px;
+      margin-bottom: 8px; /* Increased margin */
+      font-size: 13px; /* Larger font */
+      color: rgba(255, 255, 255, 0.9);
+      text-transform: capitalize;
     }
     
     .param-slider .value {
       float: right;
-      font-size: 12px;
+      font-size: 12px; /* Slightly larger value display */
       color: #aaa;
+      background-color: rgba(0, 0, 0, 0.3);
+      padding: 2px 5px;
+      border-radius: 3px;
     }
     
-    .close-btn {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      width: 20px;
-      height: 20px;
-      text-align: center;
-      line-height: 20px;
-      cursor: pointer;
-      border-radius: 50%;
-      background-color: #444;
+    .param-container {
+      margin-top: 12px; /* Increased margin */
     }
   </style>
 </head>

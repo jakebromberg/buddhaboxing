@@ -440,29 +440,32 @@ closeDebugBtn.addEventListener('click', () => {
   activeBoxForDebug = null;
 });
 
-// Function to create parameter sliders for the active effect
+// Function to create parameter sliders for a box
 function createParamSliders(box, effectName) {
+  // Get the parameter container for this specific box
+  const boxParamContainer = box.paramContainer;
+  
   // Clear existing sliders
-  paramContainer.innerHTML = '';
+  boxParamContainer.innerHTML = '';
   
   // Get the effect and its parameters
   const effect = nativeEffects[effectName];
   if (!effect || !effect.params) {
-    debugTitle.textContent = `Effect: ${effectName} (No Parameters)`;
-    return;
+    return 0; // Return 0 parameters
   }
   
-  debugTitle.textContent = `Effect: ${effectName} - Box ${Array.from(createdBoxes).indexOf(box) + 1}`;
+  const paramEntries = Object.entries(effect.params);
+  const paramCount = paramEntries.length;
   
   // Create sliders for each parameter
-  Object.entries(effect.params).forEach(([paramName, paramConfig]) => {
-    const paramContainer = document.createElement('div');
-    paramContainer.classList.add('param-slider');
+  paramEntries.forEach(([paramName, paramConfig]) => {
+    const paramSlider = document.createElement('div');
+    paramSlider.classList.add('param-slider');
     
     // Create label
     const label = document.createElement('label');
     label.textContent = paramName;
-    paramContainer.appendChild(label);
+    paramSlider.appendChild(label);
     
     // Create slider
     const slider = document.createElement('input');
@@ -471,13 +474,13 @@ function createParamSliders(box, effectName) {
     slider.max = paramConfig.max;
     slider.step = (paramConfig.max - paramConfig.min) / 100;
     slider.value = paramConfig.default;
-    paramContainer.appendChild(slider);
+    paramSlider.appendChild(slider);
     
     // Create value display
     const valueDisplay = document.createElement('span');
     valueDisplay.classList.add('value');
     valueDisplay.textContent = paramConfig.default;
-    paramContainer.appendChild(valueDisplay);
+    paramSlider.appendChild(valueDisplay);
     
     // Event listener for slider
     slider.addEventListener('input', (e) => {
@@ -491,8 +494,10 @@ function createParamSliders(box, effectName) {
     });
     
     // Add to the container
-    document.getElementById('param-container').appendChild(paramContainer);
+    boxParamContainer.appendChild(paramSlider);
   });
+  
+  return paramCount; // Return the number of parameters
 }
 
 // Box colors (9 distinct colors)
@@ -771,12 +776,63 @@ function createBox(index, table) {
   box.volumeSlider = volumeSlider; // Store reference for sync
   controlsContainer.appendChild(volumeSlider);
   
+  // Create parameter container for effect parameters
+  const paramLabel = document.createElement('div');
+  paramLabel.classList.add('control-label');
+  paramLabel.textContent = 'PARAMETERS';
+  paramLabel.style.display = 'none'; // Hide by default
+  controlsContainer.appendChild(paramLabel);
+  
+  const paramContainer = document.createElement('div');
+  paramContainer.classList.add('param-container');
+  paramContainer.style.display = 'none'; // Hide by default
+  controlsContainer.appendChild(paramContainer);
+  box.paramContainer = paramContainer; // Store reference for updating parameters
+  box.paramLabel = paramLabel; // Store reference to the label
+  
   // Position all boxes on the left side initially
   box.style.left = '10px';
   box.style.top = `${20 + index * 50}px`; // Closer together when collapsed
   
   // Add box to body instead of table
   document.body.appendChild(box);
+  
+  // Function to adjust box size based on effect parameters
+  function adjustBoxSize(effectName) {
+    // Create parameters for the selected effect
+    const paramCount = createParamSliders(box, effectName);
+    
+    // Base height for the expanded box (without parameters)
+    const baseHeight = 220; // Increased from 180 to 220 for better visibility of bottom controls
+    
+    // Show or hide the parameter section based on whether there are parameters
+    if (paramCount > 0 && effectName !== 'none') {
+      box.paramLabel.style.display = 'block';
+      box.paramContainer.style.display = 'block';
+      
+      // Additional height per parameter - increased to ensure full visibility
+      const paramHeight = 100; // Increased from 75 to 100px per parameter
+      
+      // Calculate new height based on number of parameters
+      const newHeight = baseHeight + (paramCount * paramHeight);
+      
+      // Apply the height with a transition effect
+      box.style.transition = 'height 0.3s ease';
+      
+      if (box.classList.contains('expanded')) {
+        box.style.height = `${newHeight}px`;
+      }
+    } else {
+      // Hide parameters section when no effect is selected or no parameters
+      box.paramLabel.style.display = 'none';
+      box.paramContainer.style.display = 'none';
+      
+      // Use base height without parameters
+      if (box.classList.contains('expanded')) {
+        box.style.height = `${baseHeight}px`;
+      }
+    }
+  }
   
   // Drag logic
   let isDragging = false;
@@ -785,7 +841,8 @@ function createBox(index, table) {
 
   box.addEventListener('pointerdown', (e) => {
     // Don't initiate drag if clicking on controls
-    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider) {
+    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider ||
+        e.target.closest('.param-slider')) {
       return;
     }
     
@@ -877,7 +934,8 @@ function createBox(index, table) {
   // triggers when there was no movement during the pointerdown/up cycle
   box.addEventListener('click', (e) => {
     // Don't do anything if clicking on controls
-    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider) {
+    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider ||
+        e.target.closest('.param-slider')) {
       return;
     }
     
@@ -892,24 +950,14 @@ function createBox(index, table) {
         // Show controls when expanding
         controlsContainer.style.opacity = '1';
         
-        // Show debug panel if expanding
-        activeBoxForDebug = box;
-        debugPanel.classList.add('active');
-        
-        // Create parameter sliders for current effect
-        if (effectSelect.value !== 'none') {
-          createParamSliders(box, effectSelect.value);
-        } else {
-          debugTitle.textContent = 'No Effect Selected';
-          paramContainer.innerHTML = '';
-        }
+        // Adjust box size based on the current effect
+        adjustBoxSize(effectSelect.value);
       } else {
         // Hide controls when collapsing
         controlsContainer.style.opacity = '0';
         
-        // Hide debug panel when collapsing
-        debugPanel.classList.remove('active');
-        activeBoxForDebug = null;
+        // Reset to default size when collapsing
+        box.style.height = '40px';
       }
     }
     
@@ -1063,6 +1111,9 @@ function createBox(index, table) {
     
     // Re-setup basic routing
     setupAudioRouting();
+    
+    // Adjust box size based on the selected effect
+    adjustBoxSize(effectName);
     
     // Add a small delay before creating the new effect
     setTimeout(() => {
