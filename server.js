@@ -25,7 +25,7 @@ io.on('connection', (socket) => {
   socket.on('joinSession', (sessionId) => {
     socket.join(sessionId);
 
-    // If session doesn’t exist, create it
+    // If session doesn't exist, create it
     if (!sessions[sessionId]) {
       sessions[sessionId] = { boxes: [] };
     }
@@ -36,7 +36,7 @@ io.on('connection', (socket) => {
 
   // When a box is moved or updated
   socket.on('updateBox', ({ sessionId, boxId, newX, newY }) => {
-    // Update the server’s copy of the game state
+    // Update the server's copy of the game state
     const session = sessions[sessionId];
     if (!session) return;
 

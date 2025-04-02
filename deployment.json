@@ -1,0 +1,24 @@
+{
+  "serviceName": "buddha-boxing-service-1",
+  "containers": {
+    "buddha-boxing": {
+      "image": "503977661500.dkr.ecr.us-west-2.amazonaws.com/buddha-boxing:latest",
+      "command": [],
+      "environment": {},
+      "ports": {
+        "80": "HTTP"
+      }
+    }
+  },
+  "publicEndpoint": {
+    "containerName": "buddha-boxing",
+    "containerPort": 80,
+    "healthCheck": {
+      "healthyThreshold": 2,
+      "unhealthyThreshold": 2,
+      "timeoutSeconds": 2,
+      "intervalSeconds": 5,
+      "path": "/"
+    }
+  }
+}
