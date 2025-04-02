@@ -35,24 +35,41 @@ class AudioContextManager {
                 })
                 .then(() => {
                   console.log('Audio context resumed after Safari unlock');
-                  // Add a small delay for Safari to ensure context is fully ready
-                  setTimeout(() => {
-                    resolveAudio();
-                  }, 100);
+                  resolveAudio();
                 })
                 .catch(e => {
                   console.log('Safari unlock failed, trying direct resume');
                   this.audioCtx.resume()
                     .then(() => {
                       console.log('Audio context resumed directly');
-                      // Add a small delay for Safari to ensure context is fully ready
-                      setTimeout(() => {
-                        resolveAudio();
-                      }, 100);
+                      resolveAudio();
                     })
                     .catch(e => {
                       console.warn('Audio context resume failed:', e);
-                      resolveAudio(); // Still resolve to continue
+                      // For Safari, we need to wait for user interaction
+                      if (this.isSafari) {
+                        console.log('Waiting for user interaction to resume audio context');
+                        const handleInteraction = () => {
+                          console.log('User interaction detected, attempting to resume audio context');
+                          this.audioCtx.resume()
+                            .then(() => {
+                              console.log('Audio context resumed after user interaction');
+                              resolveAudio();
+                            })
+                            .catch(e => {
+                              console.warn('Audio context resume failed after user interaction:', e);
+                              resolveAudio(); // Still resolve to continue
+                            });
+                        };
+
+                        // Add listeners for various user interactions
+                        document.addEventListener('click', handleInteraction, { once: true });
+                        document.addEventListener('touchstart', handleInteraction, { once: true });
+                        document.addEventListener('mousedown', handleInteraction, { once: true });
+                        document.addEventListener('keydown', handleInteraction, { once: true });
+                      } else {
+                        resolveAudio(); // For non-Safari browsers, continue anyway
+                      }
                     });
                 });
             } else {
@@ -69,17 +86,22 @@ class AudioContextManager {
             }
           };
 
-          // Try to resume on any user interaction
-          const handleInteraction = () => {
-            console.log('User interaction detected, attempting to resume audio context');
+          // Try to resume immediately for non-Safari browsers
+          if (!this.isSafari) {
             resumeAudio();
-          };
+          } else {
+            // For Safari, wait for user interaction
+            const handleInteraction = () => {
+              console.log('User interaction detected, attempting to resume audio context');
+              resumeAudio();
+            };
 
-          // Add listeners for various user interactions
-          document.addEventListener('click', handleInteraction);
-          document.addEventListener('touchstart', handleInteraction);
-          document.addEventListener('mousedown', handleInteraction);
-          document.addEventListener('keydown', handleInteraction);
+            // Add listeners for various user interactions
+            document.addEventListener('click', handleInteraction, { once: true });
+            document.addEventListener('touchstart', handleInteraction, { once: true });
+            document.addEventListener('mousedown', handleInteraction, { once: true });
+            document.addEventListener('keydown', handleInteraction, { once: true });
+          }
         }
       });
 
@@ -98,6 +120,13 @@ class AudioContextManager {
     console.log("Applying Safari-specific audio unlock");
     
     return new Promise((resolve) => {
+      // Check if audio context is already running
+      if (this.audioCtx && this.audioCtx.state === 'running') {
+        console.log("Audio context already running, skipping unlock");
+        resolve();
+        return;
+      }
+
       // Ensure audio context is properly initialized
       if (!this.audioCtx) {
         console.log("Creating new audio context");
@@ -122,21 +151,43 @@ class AudioContextManager {
       
       // Stop after a very short time
       setTimeout(() => {
-        oscillator.stop();
-        oscillator.disconnect();
-        gainNode.disconnect();
-        
-        // Try to resume the audio context
-        console.log("Attempting to resume audio context");
-        this.audioCtx.resume()
-          .then(() => {
-            console.log("Audio context resumed successfully");
-            resolve();
-          })
-          .catch(e => {
-            console.warn("Failed to resume audio context:", e);
-            resolve(); // Still resolve to continue with the app
-          });
+        try {
+          oscillator.stop();
+          oscillator.disconnect();
+          gainNode.disconnect();
+          
+          // Try to resume the audio context
+          console.log("Attempting to resume audio context");
+          this.audioCtx.resume()
+            .then(() => {
+              console.log("Audio context resumed successfully");
+              resolve();
+            })
+            .catch(e => {
+              console.warn("Failed to resume audio context:", e);
+              // If resume fails, check if context is already running
+              if (this.audioCtx.state === 'running') {
+                console.log("Audio context is already running despite resume error");
+                resolve();
+              } else {
+                // Try one more time with a delay
+                setTimeout(() => {
+                  this.audioCtx.resume()
+                    .then(() => {
+                      console.log("Audio context resumed on second attempt");
+                      resolve();
+                    })
+                    .catch(e => {
+                      console.warn("Second resume attempt failed:", e);
+                      resolve(); // Still resolve to continue with the app
+                    });
+                }, 100);
+              }
+            });
+        } catch (e) {
+          console.warn("Error during Safari unlock:", e);
+          resolve(); // Still resolve to continue with the app
+        }
       }, 100);
     });
   }

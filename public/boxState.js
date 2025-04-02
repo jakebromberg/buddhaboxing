@@ -1,21 +1,31 @@
 // Box state management
 export class BoxState {
-  constructor(box, index, audioCtx) {
+  constructor(box, index) {
     this.box = box;
     this.index = index;
-    this.audioCtx = audioCtx;
+    this.audioCtx = null;
     
-    // Audio nodes
+    // Audio nodes - will be initialized later
     this.sourceNode = null;
-    this.gainNode = audioCtx.createGain();
+    this.gainNode = null;
     this.effectNode = null;
-    this.dryNode = audioCtx.createGain();
-    this.wetNode = audioCtx.createGain();
-    this.mixerNode = audioCtx.createGain();
+    this.dryNode = null;
+    this.wetNode = null;
+    this.mixerNode = null;
     
     // State flags
     this.isPlaying = false;
     this.effectsReady = false;
+  }
+  
+  initializeAudio(audioCtx) {
+    this.audioCtx = audioCtx;
+    
+    // Create audio nodes
+    this.gainNode = audioCtx.createGain();
+    this.dryNode = audioCtx.createGain();
+    this.wetNode = audioCtx.createGain();
+    this.mixerNode = audioCtx.createGain();
     
     // Initialize gain values
     this.gainNode.gain.value = 0;
@@ -30,6 +40,8 @@ export class BoxState {
   }
   
   setupAudioRouting() {
+    if (!this.audioCtx) return;
+    
     // Connect the dry path
     this.gainNode.connect(this.dryNode);
     this.dryNode.connect(this.mixerNode);
@@ -42,35 +54,37 @@ export class BoxState {
   }
   
   cleanupEffect() {
-    if (this.effectNode) {
-      try {
-        // Handle special case for complex effects that have input/output properties
-        if (this.effectNode.input && this.effectNode.output) {
-          // Disconnect complex effect
-          this.gainNode.disconnect(this.effectNode.input);
-          this.effectNode.output.disconnect();
-        } else {
-          // Disconnect simple effect
-          this.gainNode.disconnect(this.effectNode);
-          this.effectNode.disconnect();
-        }
-        
-        // Then disconnect the gain node from everything
-        // and reconnect the dry path
-        this.gainNode.disconnect();
-        this.gainNode.connect(this.dryNode);
-        
-        // Set to null to ensure garbage collection
-        this.effectNode = null;
-        this.box.effectNode = null;
-        console.log('Previous effect cleaned up');
-      } catch (e) {
-        console.log('Error disconnecting effect:', e);
+    if (!this.audioCtx || !this.effectNode) return;
+    
+    try {
+      // Handle special case for complex effects that have input/output properties
+      if (this.effectNode.input && this.effectNode.output) {
+        // Disconnect complex effect
+        this.gainNode.disconnect(this.effectNode.input);
+        this.effectNode.output.disconnect();
+      } else {
+        // Disconnect simple effect
+        this.gainNode.disconnect(this.effectNode);
+        this.effectNode.disconnect();
       }
+      
+      // Then disconnect the gain node from everything
+      // and reconnect the dry path
+      this.gainNode.disconnect();
+      this.gainNode.connect(this.dryNode);
+      
+      // Set to null to ensure garbage collection
+      this.effectNode = null;
+      this.box.effectNode = null;
+      console.log('Previous effect cleaned up');
+    } catch (e) {
+      console.log('Error disconnecting effect:', e);
     }
   }
   
   setupEffect(effectName, availableEffectPresets, createParamSliders, activeBoxForDebug) {
+    if (!this.audioCtx) return;
+    
     // If selecting "none", just return
     if (effectName === 'none') {
       return;
@@ -118,6 +132,8 @@ export class BoxState {
   }
   
   applyMix(mixValue) {
+    if (!this.audioCtx) return;
+    
     // Apply the mix values directly
     this.dryNode.gain.cancelScheduledValues(this.audioCtx.currentTime);
     this.wetNode.gain.cancelScheduledValues(this.audioCtx.currentTime);
@@ -130,12 +146,16 @@ export class BoxState {
   }
   
   setVolume(volume) {
+    if (!this.audioCtx) return;
+    
     this.gainNode.gain.cancelScheduledValues(this.audioCtx.currentTime);
     this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, this.audioCtx.currentTime);
     this.gainNode.gain.linearRampToValueAtTime(volume, this.audioCtx.currentTime + 0.1);
   }
   
   cleanup() {
+    if (!this.audioCtx) return;
+    
     if (this.sourceNode) {
       try {
         this.sourceNode.stop();
