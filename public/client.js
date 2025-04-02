@@ -778,40 +778,139 @@ function createBox(index, table) {
   // Add box to body instead of table
   document.body.appendChild(box);
   
-  // Single click handler for both expanding and debug panel
+  // Drag logic
+  let isDragging = false;
+  let hasMoved = false; // Track if the box has been moved during drag
+  let offsetX, offsetY;
+
+  box.addEventListener('pointerdown', (e) => {
+    // Don't initiate drag if clicking on controls
+    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider) {
+      return;
+    }
+    
+    isDragging = true;
+    hasMoved = false; // Reset the movement flag
+    offsetX = e.clientX - box.offsetLeft;
+    offsetY = e.clientY - box.offsetTop;
+    box.setPointerCapture(e.pointerId);
+    
+    // If the box isn't expanded, do not consider this a drag yet
+    // Give the user a chance to click to expand
+    if (!box.classList.contains('expanded')) {
+      // Wait a bit to see if this is a drag or just a click
+      setTimeout(() => {
+        if (isDragging) {
+          box.style.zIndex = 10; // Bring to front when dragging
+        }
+      }, 150);
+    } else {
+      box.style.zIndex = 10; // Bring to front when dragging
+    }
+  });
+
+  box.addEventListener('pointermove', (e) => {
+    if (isDragging) {
+      hasMoved = true; // Mark that movement has occurred
+      const newX = e.clientX - offsetX;
+      const newY = e.clientY - offsetY;
+      box.style.left = newX + 'px';
+      box.style.top = newY + 'px';
+      
+      // Log box position and table bounds for debugging
+      const boxRect = box.getBoundingClientRect();
+      const tableRect = document.getElementById('table').getBoundingClientRect();
+      console.log(`Box ${index+1} position:`, {
+        boxLeft: boxRect.left,
+        boxRight: boxRect.right,
+        boxTop: boxRect.top,
+        boxBottom: boxRect.bottom,
+        tableLeft: tableRect.left,
+        tableRight: tableRect.right,
+        tableTop: tableRect.top,
+        tableBottom: tableRect.bottom
+      });
+      
+      // Throttle updates to server to avoid flooding
+      if (!box.lastUpdate || Date.now() - box.lastUpdate > 50) {
+        sendBoxUpdate({ newX, newY });
+        box.lastUpdate = Date.now();
+      }
+    }
+  });
+
+  box.addEventListener('pointerup', (e) => {
+    if (isDragging) {
+      isDragging = false;
+      box.releasePointerCapture(e.pointerId);
+      box.style.zIndex = 1;
+      
+      // Check if box is within the table boundaries
+      const tableRect = table.getBoundingClientRect();
+      const boxRect = box.getBoundingClientRect();
+      
+      const insideTable = (
+        boxRect.left >= tableRect.left &&
+        boxRect.right <= tableRect.right &&
+        boxRect.top >= tableRect.top &&
+        boxRect.bottom <= tableRect.bottom
+      );
+      
+      // Final position update with high priority
+      sendBoxUpdate({
+        newX: parseFloat(box.style.left),
+        newY: parseFloat(box.style.top),
+        insideTable
+      });
+      
+      if (insideTable) {
+        // Start or maintain audio
+        startAudio();
+      } else {
+        // Stop or fade out audio
+        stopAudio();
+      }
+    }
+  });
+  
+  // Replace click handler with a more specific handler that only 
+  // triggers when there was no movement during the pointerdown/up cycle
   box.addEventListener('click', (e) => {
     // Don't do anything if clicking on controls
     if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider) {
       return;
     }
     
-    // Toggle expanded class
-    const wasExpanded = box.classList.contains('expanded');
-    box.classList.toggle('expanded');
-    
-    // Show/hide controls
-    if (!wasExpanded) {
-      // Show controls when expanding
-      controlsContainer.style.opacity = '1';
+    // Only toggle expanded state if this wasn't a drag operation
+    if (!hasMoved) {
+      // Toggle expanded class
+      const wasExpanded = box.classList.contains('expanded');
+      box.classList.toggle('expanded');
       
-      // Show debug panel if expanding
-      activeBoxForDebug = box;
-      debugPanel.classList.add('active');
-      
-      // Create parameter sliders for current effect
-      if (effectSelect.value !== 'none') {
-        createParamSliders(box, effectSelect.value);
+      // Show/hide controls
+      if (!wasExpanded) {
+        // Show controls when expanding
+        controlsContainer.style.opacity = '1';
+        
+        // Show debug panel if expanding
+        activeBoxForDebug = box;
+        debugPanel.classList.add('active');
+        
+        // Create parameter sliders for current effect
+        if (effectSelect.value !== 'none') {
+          createParamSliders(box, effectSelect.value);
+        } else {
+          debugTitle.textContent = 'No Effect Selected';
+          paramContainer.innerHTML = '';
+        }
       } else {
-        debugTitle.textContent = 'No Effect Selected';
-        paramContainer.innerHTML = '';
+        // Hide controls when collapsing
+        controlsContainer.style.opacity = '0';
+        
+        // Hide debug panel when collapsing
+        debugPanel.classList.remove('active');
+        activeBoxForDebug = null;
       }
-    } else {
-      // Hide controls when collapsing
-      controlsContainer.style.opacity = '0';
-      
-      // Hide debug panel when collapsing
-      debugPanel.classList.remove('active');
-      activeBoxForDebug = null;
     }
     
     // Prevent propagation
@@ -1079,98 +1178,6 @@ function createBox(index, table) {
   
   // Attach stopAudio to box for external calling
   box.stopAudio = stopAudio;
-  
-  // Drag logic
-  let isDragging = false;
-  let offsetX, offsetY;
-
-  box.addEventListener('pointerdown', (e) => {
-    // Don't initiate drag if clicking on controls
-    if (e.target === volumeSlider || e.target === effectSelect || e.target === mixSlider) {
-      return;
-    }
-    
-    isDragging = true;
-    offsetX = e.clientX - box.offsetLeft;
-    offsetY = e.clientY - box.offsetTop;
-    box.setPointerCapture(e.pointerId);
-    
-    // If the box isn't expanded, do not consider this a drag yet
-    // Give the user a chance to click to expand
-    if (!box.classList.contains('expanded')) {
-      // Wait a bit to see if this is a drag or just a click
-      setTimeout(() => {
-        if (isDragging) {
-          box.style.zIndex = 10; // Bring to front when dragging
-        }
-      }, 150);
-    } else {
-      box.style.zIndex = 10; // Bring to front when dragging
-    }
-  });
-
-  box.addEventListener('pointermove', (e) => {
-    if (isDragging) {
-      const newX = e.clientX - offsetX;
-      const newY = e.clientY - offsetY;
-      box.style.left = newX + 'px';
-      box.style.top = newY + 'px';
-      
-      // Log box position and table bounds for debugging
-      const boxRect = box.getBoundingClientRect();
-      const tableRect = document.getElementById('table').getBoundingClientRect();
-      console.log(`Box ${index+1} position:`, {
-        boxLeft: boxRect.left,
-        boxRight: boxRect.right,
-        boxTop: boxRect.top,
-        boxBottom: boxRect.bottom,
-        tableLeft: tableRect.left,
-        tableRight: tableRect.right,
-        tableTop: tableRect.top,
-        tableBottom: tableRect.bottom
-      });
-      
-      // Throttle updates to server to avoid flooding
-      if (!box.lastUpdate || Date.now() - box.lastUpdate > 50) {
-        sendBoxUpdate({ newX, newY });
-        box.lastUpdate = Date.now();
-      }
-    }
-  });
-
-  box.addEventListener('pointerup', (e) => {
-    if (isDragging) {
-      isDragging = false;
-      box.releasePointerCapture(e.pointerId);
-      box.style.zIndex = 1;
-      
-      // Check if box is within the table boundaries
-      const tableRect = table.getBoundingClientRect();
-      const boxRect = box.getBoundingClientRect();
-      
-      const insideTable = (
-        boxRect.left >= tableRect.left &&
-        boxRect.right <= tableRect.right &&
-        boxRect.top >= tableRect.top &&
-        boxRect.bottom <= tableRect.bottom
-      );
-      
-      // Final position update with high priority
-      sendBoxUpdate({
-        newX: parseFloat(box.style.left),
-        newY: parseFloat(box.style.top),
-        insideTable
-      });
-      
-      if (insideTable) {
-        // Start or maintain audio
-        startAudio();
-      } else {
-        // Stop or fade out audio
-        stopAudio();
-      }
-    }
-  });
 }
 
 // Hide debug panel when clicking elsewhere
