@@ -461,10 +461,17 @@ function createParamSliders(box, effectName) {
   paramEntries.forEach(([paramName, paramConfig]) => {
     const paramSlider = document.createElement('div');
     paramSlider.classList.add('param-slider');
+    // Remove any box styling
+    paramSlider.style.margin = '5px 0';
+    paramSlider.style.padding = '0';
+    paramSlider.style.border = 'none';
+    paramSlider.style.background = 'none';
     
     // Create label
-    const label = document.createElement('label');
-    label.textContent = paramName;
+    const label = document.createElement('div');
+    label.classList.add('control-label');
+    label.textContent = paramName.toUpperCase();
+    label.style.marginBottom = '2px';
     paramSlider.appendChild(label);
     
     // Create slider
@@ -474,12 +481,16 @@ function createParamSliders(box, effectName) {
     slider.max = paramConfig.max;
     slider.step = (paramConfig.max - paramConfig.min) / 100;
     slider.value = paramConfig.default;
+    slider.classList.add('param-control');
+    slider.style.width = '100%';
+    slider.style.margin = '0';
     paramSlider.appendChild(slider);
     
     // Create value display
     const valueDisplay = document.createElement('span');
     valueDisplay.classList.add('value');
-    valueDisplay.textContent = paramConfig.default;
+    valueDisplay.textContent = paramConfig.default.toFixed(2);
+    valueDisplay.style.marginLeft = '5px';
     paramSlider.appendChild(valueDisplay);
     
     // Event listener for slider
@@ -745,10 +756,25 @@ function createBox(index, table) {
   
   controlsContainer.appendChild(effectSelect);
   
-  // Add mix slider
+  // Create parameter container for effect parameters
+  const paramLabel = document.createElement('div');
+  paramLabel.classList.add('control-label');
+  paramLabel.textContent = 'PARAMETERS';
+  paramLabel.style.display = 'none'; // Hide by default
+  controlsContainer.appendChild(paramLabel);
+  
+  const paramContainer = document.createElement('div');
+  paramContainer.classList.add('param-container');
+  paramContainer.style.display = 'none'; // Hide by default
+  controlsContainer.appendChild(paramContainer);
+  box.paramContainer = paramContainer; // Store reference for updating parameters
+  box.paramLabel = paramLabel; // Store reference to the label
+  
+  // Add mix slider (moved from earlier to be grouped with parameters)
   const mixLabel = document.createElement('div');
   mixLabel.classList.add('control-label');
   mixLabel.textContent = 'DRY/WET';
+  mixLabel.style.display = 'none'; // Hide by default
   controlsContainer.appendChild(mixLabel);
   
   const mixSlider = document.createElement('input');
@@ -757,8 +783,10 @@ function createBox(index, table) {
   mixSlider.max = 100;
   mixSlider.value = 0; // Start completely dry
   mixSlider.classList.add('mix-control');
+  mixSlider.style.display = 'none'; // Hide by default
   box.mixSlider = mixSlider; // Store reference for sync
   controlsContainer.appendChild(mixSlider);
+  box.mixLabel = mixLabel; // Store reference to the label
   
   // Add volume label
   const volumeLabel = document.createElement('div');
@@ -776,20 +804,6 @@ function createBox(index, table) {
   box.volumeSlider = volumeSlider; // Store reference for sync
   controlsContainer.appendChild(volumeSlider);
   
-  // Create parameter container for effect parameters
-  const paramLabel = document.createElement('div');
-  paramLabel.classList.add('control-label');
-  paramLabel.textContent = 'PARAMETERS';
-  paramLabel.style.display = 'none'; // Hide by default
-  controlsContainer.appendChild(paramLabel);
-  
-  const paramContainer = document.createElement('div');
-  paramContainer.classList.add('param-container');
-  paramContainer.style.display = 'none'; // Hide by default
-  controlsContainer.appendChild(paramContainer);
-  box.paramContainer = paramContainer; // Store reference for updating parameters
-  box.paramLabel = paramLabel; // Store reference to the label
-  
   // Position all boxes on the left side initially
   box.style.left = '10px';
   box.style.top = `${20 + index * 50}px`; // Closer together when collapsed
@@ -803,18 +817,20 @@ function createBox(index, table) {
     const paramCount = createParamSliders(box, effectName);
     
     // Base height for the expanded box (without parameters)
-    const baseHeight = 220; // Increased from 180 to 220 for better visibility of bottom controls
+    const baseHeight = 180; // Reduced from 220 to 180
     
     // Show or hide the parameter section based on whether there are parameters
     if (paramCount > 0 && effectName !== 'none') {
       box.paramLabel.style.display = 'block';
       box.paramContainer.style.display = 'block';
+      box.mixLabel.style.display = 'block';
+      box.mixSlider.style.display = 'block';
       
-      // Additional height per parameter - increased to ensure full visibility
-      const paramHeight = 100; // Increased from 75 to 100px per parameter
+      // Additional height per parameter - reduced for more compact display
+      const paramHeight = 60; // Reduced from 100 to 60px per parameter
       
-      // Calculate new height based on number of parameters
-      const newHeight = baseHeight + (paramCount * paramHeight);
+      // Calculate new height based on number of parameters plus the mix control
+      const newHeight = baseHeight + ((paramCount + 1) * paramHeight);
       
       // Apply the height with a transition effect
       box.style.transition = 'height 0.3s ease';
@@ -826,10 +842,14 @@ function createBox(index, table) {
       // Hide parameters section when no effect is selected or no parameters
       box.paramLabel.style.display = 'none';
       box.paramContainer.style.display = 'none';
+      box.mixLabel.style.display = effectName !== 'none' ? 'block' : 'none';
+      box.mixSlider.style.display = effectName !== 'none' ? 'block' : 'none';
       
       // Use base height without parameters
       if (box.classList.contains('expanded')) {
-        box.style.height = `${baseHeight}px`;
+        // Add extra height if we have the mix control but no parameters
+        const mixHeight = effectName !== 'none' ? 60 : 0; // Reduced from 100 to 60
+        box.style.height = `${baseHeight + mixHeight}px`;
       }
     }
   }
