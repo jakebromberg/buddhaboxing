@@ -42,7 +42,6 @@ export class DistortionEffect extends NativeEffect {
 
   create() {
     const distortion = this.audioCtx.createWaveShaper();
-    this.updateDistortion(this.params.amount.default);
     distortion.oversample = '4x';
     
     this.nodes = {
@@ -51,10 +50,18 @@ export class DistortionEffect extends NativeEffect {
       _distortion: distortion
     };
     
+    // Initialize with default value after nodes are set up
+    this.updateDistortion(this.params.amount.default);
+    
     return this.nodes;
   }
 
   updateDistortion(value) {
+    if (!this.nodes || !this.nodes._distortion) {
+      console.warn('Distortion node not initialized yet');
+      return;
+    }
+
     const intensity = value / 10; // Scale from 0-100 to 0-10
     const curve = new Float32Array(44100);
     const deg = Math.PI / 180;
@@ -91,9 +98,11 @@ export class DelayEffect extends NativeEffect {
     const delay = this.audioCtx.createDelay();
     const feedback = this.audioCtx.createGain();
     
+    // Initialize nodes with default values
     delay.delayTime.value = this.params.time.default;
     feedback.gain.value = this.params.feedback.default;
     
+    // Set up the routing
     delay.connect(feedback);
     feedback.connect(delay);
     
@@ -108,10 +117,18 @@ export class DelayEffect extends NativeEffect {
   }
 
   updateDelayTime(value) {
+    if (!this.nodes || !this.nodes._delay) {
+      console.error('Delay nodes not initialized');
+      return;
+    }
     this.nodes._delay.delayTime.setValueAtTime(value, this.audioCtx.currentTime);
   }
 
   updateFeedback(value) {
+    if (!this.nodes || !this.nodes._feedback) {
+      console.error('Delay nodes not initialized');
+      return;
+    }
     this.nodes._feedback.gain.setValueAtTime(value, this.audioCtx.currentTime);
   }
 }
@@ -130,35 +147,87 @@ export class ReverbEffect extends NativeEffect {
   }
 
   create() {
-    const convolver = this.audioCtx.createConvolver();
-    this.updateDecay(this.params.decay.default);
+    const delay1 = this.audioCtx.createDelay();
+    const delay2 = this.audioCtx.createDelay();
+    const delay3 = this.audioCtx.createDelay();
+    const delay4 = this.audioCtx.createDelay();
+    const feedback1 = this.audioCtx.createGain();
+    const feedback2 = this.audioCtx.createGain();
+    const feedback3 = this.audioCtx.createGain();
+    const feedback4 = this.audioCtx.createGain();
+    const wetGain = this.audioCtx.createGain();
+    const dryGain = this.audioCtx.createGain();
+    const input = this.audioCtx.createGain();
+    const output = this.audioCtx.createGain();
+    
+    // Set up the routing
+    input.connect(delay1);
+    input.connect(delay2);
+    input.connect(delay3);
+    input.connect(delay4);
+    input.connect(dryGain);
+    
+    delay1.connect(feedback1);
+    delay2.connect(feedback2);
+    delay3.connect(feedback3);
+    delay4.connect(feedback4);
+    
+    feedback1.connect(delay1);
+    feedback2.connect(delay2);
+    feedback3.connect(delay3);
+    feedback4.connect(delay4);
+    
+    delay1.connect(wetGain);
+    delay2.connect(wetGain);
+    delay3.connect(wetGain);
+    delay4.connect(wetGain);
+    
+    wetGain.connect(output);
+    dryGain.connect(output);
     
     this.nodes = {
-      input: convolver,
-      output: convolver,
-      _convolver: convolver
+      input: input,
+      output: output,
+      _delay1: delay1,
+      _delay2: delay2,
+      _delay3: delay3,
+      _delay4: delay4,
+      _feedback1: feedback1,
+      _feedback2: feedback2,
+      _feedback3: feedback3,
+      _feedback4: feedback4,
+      _wetGain: wetGain,
+      _dryGain: dryGain
     };
+    
+    // Initialize with default values
+    this.updateDecay(this.params.decay.default);
     
     return this.nodes;
   }
 
   updateDecay(value) {
-    const attack = 0;
-    const decay = value;
-    const sampleRate = this.audioCtx.sampleRate;
-    const length = sampleRate * decay;
-    const impulse = this.audioCtx.createBuffer(2, length, sampleRate);
-    const impulseL = impulse.getChannelData(0);
-    const impulseR = impulse.getChannelData(1);
-    
-    for(let i = 0; i < length; i++) {
-      const n = i / length;
-      impulseL[i] = (Math.random() * 2 - 1) * Math.pow(1 - n, decay);
-      impulseR[i] = (Math.random() * 2 - 1) * Math.pow(1 - n, decay);
+    if (!this.nodes) {
+      console.warn('Reverb nodes not initialized yet');
+      return;
     }
+
+    // Set delay times to different prime numbers to create a more natural reverb
+    this.nodes._delay1.delayTime.value = 0.0297;
+    this.nodes._delay2.delayTime.value = 0.0371;
+    this.nodes._delay3.delayTime.value = 0.0411;
+    this.nodes._delay4.delayTime.value = 0.0437;
     
-    this.nodes._convolver.buffer = impulse;
-    this.nodes._convolver._decay = decay;
+    // Set feedback gains based on decay value
+    const feedbackGain = Math.pow(0.001, 1 / value);
+    this.nodes._feedback1.gain.value = feedbackGain;
+    this.nodes._feedback2.gain.value = feedbackGain;
+    this.nodes._feedback3.gain.value = feedbackGain;
+    this.nodes._feedback4.gain.value = feedbackGain;
+    
+    // Set wet/dry mix
+    this.nodes._wetGain.gain.value = 0.5;
+    this.nodes._dryGain.gain.value = 0.5;
   }
 }
 
@@ -188,9 +257,6 @@ export class ConvolverReverbEffect extends NativeEffect {
     const input = this.audioCtx.createGain();
     const output = this.audioCtx.createGain();
     
-    this.updateDecay(this.params.decay.default);
-    this.updateMix(this.params.mix.default);
-    
     // Set up the routing
     input.connect(convolver);
     input.connect(dryGain);
@@ -206,32 +272,49 @@ export class ConvolverReverbEffect extends NativeEffect {
       _dryGain: dryGain
     };
     
+    // Initialize with default values after nodes are set up
+    this.updateMix(this.params.mix.default);
+    this.updateDecay(this.params.decay.default);
+    
     return this.nodes;
   }
 
   updateMix(value) {
+    if (!this.nodes || !this.nodes._wetGain || !this.nodes._dryGain) {
+      console.warn('Reverb nodes not initialized yet');
+      return;
+    }
     this.nodes._wetGain.gain.setValueAtTime(value, this.audioCtx.currentTime);
     this.nodes._dryGain.gain.setValueAtTime(1 - value, this.audioCtx.currentTime);
   }
 
   updateDecay(value) {
-    const sampleRate = this.audioCtx.sampleRate;
-    const length = sampleRate * value;
-    const impulse = this.audioCtx.createBuffer(2, length, sampleRate);
-    const impulseL = impulse.getChannelData(0);
-    const impulseR = impulse.getChannelData(1);
-    
-    for (let i = 0; i < length; i++) {
-      const n = i / length;
-      const decay = Math.exp(-n * 3);
-      const random = (Math.random() * 2 - 1) * 0.1;
-      const earlyReflections = Math.exp(-n * 20) * 0.5;
-      
-      impulseL[i] = (decay + random + earlyReflections) * (1 - n);
-      impulseR[i] = (decay + random + earlyReflections) * (1 - n);
+    if (!this.nodes || !this.nodes._convolver) {
+      console.warn('Reverb nodes not initialized yet');
+      return;
     }
-    
-    this.nodes._convolver.buffer = impulse;
+
+    try {
+      const sampleRate = this.audioCtx.sampleRate;
+      const length = sampleRate * value;
+      const impulse = this.audioCtx.createBuffer(2, length, sampleRate);
+      const impulseL = impulse.getChannelData(0);
+      const impulseR = impulse.getChannelData(1);
+      
+      for (let i = 0; i < length; i++) {
+        const n = i / length;
+        const decay = Math.exp(-n * 3);
+        const random = (Math.random() * 2 - 1) * 0.1;
+        const earlyReflections = Math.exp(-n * 20) * 0.5;
+        
+        impulseL[i] = (decay + random + earlyReflections) * (1 - n);
+        impulseR[i] = (decay + random + earlyReflections) * (1 - n);
+      }
+      
+      this.nodes._convolver.buffer = impulse;
+    } catch (error) {
+      console.error('Error updating reverb decay:', error);
+    }
   }
 }
 

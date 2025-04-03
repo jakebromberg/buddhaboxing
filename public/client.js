@@ -1,4 +1,3 @@
-// Import AudioContextManager
 import AudioContextManager from './audioContextManager.js';
 import { Box } from './Box.js';
 import { nativeEffects } from './nativeEffects.js';
@@ -44,16 +43,19 @@ function updateBoxPosition(box, index) {
 // Function to load audio files
 async function loadAudioFiles() {
   try {
-    const response = await fetch('/api/audio-files');
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const audioFiles = await response.json();
+    // Hardcode the list of audio files we know exist
+    audioFiles = [
+      '01.m4a', '02.m4a', '03.m4a', '04.m4a', '05.m4a',
+      '06.m4a', '07.m4a', '08.m4a', '09.m4a'
+    ];
     
     // Initialize audio load status
     window.audioLoadStatus = {};
     window.audioBuffers = {};
     window.tempAudioElements = {};
+    
+    // Ensure audio context is initialized
+    await audioManager.initialize();
     
     // Load each audio file
     const loadPromises = audioFiles.map(async (url, index) => {
@@ -92,7 +94,7 @@ async function loadAudioFiles() {
     
     return results;
   } catch (error) {
-    console.error('Error fetching audio files:', error);
+    console.error('Error loading audio files:', error);
     throw error;
   }
 }
@@ -141,6 +143,8 @@ let boxPositionsFromServer = null;
 let boxes = [];
 let syncEnabled = true;
 let lastUpdateTime = 0;
+let boxesCreated = false;
+let audioFiles = [];
 const UPDATE_INTERVAL = 1000 / 30; // 30 FPS for smooth updates
 
 // Debug: Log all available Native Web Audio effects
@@ -247,12 +251,17 @@ const boxColors = [
 
 // Create boxes immediately
 // First ensure audio context is initialized
-createBoxes();
+// createBoxes();  // Remove this line
 createSessionDisplay();
 boxesCreated = true;
 
 // Then start loading audio files
-setTimeout(loadAudioFiles, 100);
+setTimeout(async () => {
+  await loadAudioFiles();
+  if (!boxesCreated) {  // Only create boxes if they haven't been created yet
+    createBoxes();
+  }
+}, 100);
 
 // Create session display
 function createSessionDisplay() {
@@ -340,41 +349,8 @@ socket.on('boxUpdated', ({ boxId, newX, newY, effect, mixValue, volume }) => {
   const oldSync = syncEnabled;
   syncEnabled = false;
   
-  // Update position (if provided)
-  if (newX !== undefined && newY !== undefined) {
-    box.element.style.left = newX + 'px';
-    box.element.style.top = newY + 'px';
-    
-    // Check if inside table and play/stop audio
-    box.checkBoxPosition();
-  }
-  
-  // Update effect (if provided)
-  if (effect !== undefined && box.effectSelect) {
-    box.effectSelect.value = effect;
-    
-    // Trigger the change event to apply the effect
-    const changeEvent = new Event('change');
-    box.effectSelect.dispatchEvent(changeEvent);
-  }
-  
-  // Update mix value (if provided)
-  if (mixValue !== undefined && box.mixSlider) {
-    box.mixSlider.value = mixValue * 100;
-    
-    // Trigger the input event to apply the mix
-    const inputEvent = new Event('input');
-    box.mixSlider.dispatchEvent(inputEvent);
-  }
-  
-  // Update volume (if provided)
-  if (volume !== undefined && box.volumeSlider) {
-    box.volumeSlider.value = volume * 100;
-    
-    // Trigger the input event to apply the volume
-    const inputEvent = new Event('input');
-    box.volumeSlider.dispatchEvent(inputEvent);
-  }
+  // Update box using the new method
+  box.updateFromServer({ newX, newY, effect, mixValue, volume });
   
   // Re-enable syncing
   syncEnabled = oldSync;
@@ -533,3 +509,18 @@ if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf(
     });
   }, 1000);
 }
+
+// Load audio files and create boxes
+async function initializeApp() {
+  try {
+    console.log('Loading audio files...');
+    await loadAudioFiles();
+    console.log('Audio files loaded, creating boxes...');
+    createBoxes();
+  } catch (error) {
+    console.error('Error initializing app:', error);
+  }
+}
+
+// Start the app
+initializeApp();

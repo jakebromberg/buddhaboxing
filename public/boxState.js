@@ -1,9 +1,9 @@
 // Box state management
 export class BoxState {
-  constructor(box, index) {
+  constructor(box, index, audioManager) {
     this.box = box;
     this.index = index;
-    this.audioCtx = null;
+    this.audioManager = audioManager;
     
     // Audio nodes - will be initialized later
     this.sourceNode = null;
@@ -13,34 +13,24 @@ export class BoxState {
     this.wetNode = null;
     this.mixerNode = null;
     
+    // Store the effect instance
+    this.effectInstance = null;
+    
     // State flags
     this.isPlaying = false;
     this.effectsReady = false;
   }
   
-  initializeAudio(audioCtx) {
-    this.audioCtx = audioCtx;
-    
-    // Create audio nodes
-    this.gainNode = audioCtx.createGain();
-    this.dryNode = audioCtx.createGain();
-    this.wetNode = audioCtx.createGain();
-    this.mixerNode = audioCtx.createGain();
-    
-    // Initialize gain values
-    this.gainNode.gain.value = 0;
-    this.dryNode.gain.value = 1;
-    this.wetNode.gain.value = 0;
-    
-    // Store effectNode on the box object for debugging
-    this.box.effectNode = this.effectNode;
-    
-    // Set up initial routing
-    this.setupAudioRouting();
-  }
-  
   setupAudioRouting() {
-    if (!this.audioCtx) return;
+    if (!this.audioManager.isReady()) {
+      console.error('Audio context not ready');
+      return;
+    }
+    
+    if (!this.gainNode || !this.dryNode || !this.wetNode || !this.mixerNode) {
+      console.error('Audio nodes not initialized');
+      return;
+    }
     
     // Connect the dry path
     this.gainNode.connect(this.dryNode);
@@ -50,11 +40,11 @@ export class BoxState {
     this.wetNode.connect(this.mixerNode);
     
     // Connect mixer to output
-    this.mixerNode.connect(this.audioCtx.destination);
+    this.audioManager.connect(this.mixerNode);
   }
   
   cleanupEffect() {
-    if (!this.audioCtx || !this.effectNode) return;
+    if (!this.effectNode) return;
     
     try {
       // Handle special case for complex effects that have input/output properties
@@ -75,6 +65,7 @@ export class BoxState {
       
       // Set to null to ensure garbage collection
       this.effectNode = null;
+      this.effectInstance = null;
       this.box.effectNode = null;
       console.log('Previous effect cleaned up');
     } catch (e) {
@@ -83,8 +74,6 @@ export class BoxState {
   }
   
   setupEffect(effectName, availableEffectPresets, createParamSliders, activeBoxForDebug) {
-    if (!this.audioCtx) return;
-    
     // If selecting "none", just return
     if (effectName === 'none') {
       return;
@@ -102,7 +91,8 @@ export class BoxState {
       console.log(`Creating effect: ${effectName}`);
       
       // Create a new effect instance using our factory function
-      this.effectNode = effect.create();
+      this.effectInstance = effect(this.audioManager.getAudioContext());
+      this.effectNode = this.effectInstance.create();
       
       // Handle special case for complex effects that have input/output properties
       if (this.effectNode.input && this.effectNode.output) {
@@ -117,45 +107,40 @@ export class BoxState {
       
       console.log(`Effect created and connected: ${effectName}`);
       
+      // Store effectNode on the box object for debugging
+      this.box.effectNode = this.effectNode;
+      
       // Update debug panel if this box is active
       if (activeBoxForDebug === this.box) {
         createParamSliders(this.box, effectName);
       }
-      
-      // Store effectNode on the box object for debugging
-      this.box.effectNode = this.effectNode;
     } catch (e) {
       console.error(`Error creating ${effectName} effect:`, e);
       this.effectNode = null;
+      this.effectInstance = null;
       this.box.effectNode = null;
     }
   }
   
   applyMix(mixValue) {
-    if (!this.audioCtx) return;
-    
     // Apply the mix values directly
-    this.dryNode.gain.cancelScheduledValues(this.audioCtx.currentTime);
-    this.wetNode.gain.cancelScheduledValues(this.audioCtx.currentTime);
+    this.dryNode.gain.cancelScheduledValues(this.audioManager.getCurrentTime());
+    this.wetNode.gain.cancelScheduledValues(this.audioManager.getCurrentTime());
     
-    this.dryNode.gain.setValueAtTime(this.dryNode.gain.value, this.audioCtx.currentTime);
-    this.wetNode.gain.setValueAtTime(this.wetNode.gain.value, this.audioCtx.currentTime);
+    this.dryNode.gain.setValueAtTime(this.dryNode.gain.value, this.audioManager.getCurrentTime());
+    this.wetNode.gain.setValueAtTime(this.wetNode.gain.value, this.audioManager.getCurrentTime());
     
-    this.dryNode.gain.linearRampToValueAtTime(1 - mixValue, this.audioCtx.currentTime + 0.1);
-    this.wetNode.gain.linearRampToValueAtTime(mixValue, this.audioCtx.currentTime + 0.1);
+    this.dryNode.gain.linearRampToValueAtTime(1 - mixValue, this.audioManager.getCurrentTime() + 0.1);
+    this.wetNode.gain.linearRampToValueAtTime(mixValue, this.audioManager.getCurrentTime() + 0.1);
   }
   
   setVolume(volume) {
-    if (!this.audioCtx) return;
-    
-    this.gainNode.gain.cancelScheduledValues(this.audioCtx.currentTime);
-    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, this.audioCtx.currentTime);
-    this.gainNode.gain.linearRampToValueAtTime(volume, this.audioCtx.currentTime + 0.1);
+    this.gainNode.gain.cancelScheduledValues(this.audioManager.getCurrentTime());
+    this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, this.audioManager.getCurrentTime());
+    this.gainNode.gain.linearRampToValueAtTime(volume, this.audioManager.getCurrentTime() + 0.1);
   }
   
   cleanup() {
-    if (!this.audioCtx) return;
-    
     if (this.sourceNode) {
       try {
         this.sourceNode.stop();

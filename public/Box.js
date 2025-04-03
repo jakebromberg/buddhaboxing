@@ -1,6 +1,6 @@
 import AudioContextManager from './audioContextManager.js';
 import { BoxState } from './boxState.js';
-import { nativeEffects } from './nativeEffects.js';
+import { createEffect } from './nativeEffects.js';
 
 export class Box {
   constructor(index, audioManager, isSafari, audioFiles) {
@@ -31,11 +31,23 @@ export class Box {
     this.element.style.opacity = '1';
     this.element.style.zIndex = '1';
     
+    // Add explicit transition styles
+    this.element.style.transition = 'height 0.3s ease, opacity 0.3s ease';
+    this.element.style.overflow = 'hidden';
+    this.element.style.height = '40px';
+    this.element.style.position = 'absolute';
+    this.element.style.left = '10px';
+    this.element.style.top = `${20 + this.index * 50}px`;
+    this.element.style.width = '120px';
+    
     // Store reference to this box
     this.element.boxId = this.index;
     
+    // Create audio manager
+    this.audioManager = new AudioContextManager();
+    
     // Create box state manager
-    this.state = new BoxState(this.element, this.index);
+    this.state = new BoxState(this.element, this.index, this.audioManager);
     
     // Add box number
     const boxNumber = document.createElement('div');
@@ -46,13 +58,6 @@ export class Box {
     // Create controls container
     this.createControlsContainer();
     
-    // Position box
-    this.element.style.position = 'absolute';
-    this.element.style.left = '10px';
-    this.element.style.top = `${20 + this.index * 50}px`;
-    this.element.style.width = '120px';
-    this.element.style.height = '40px';
-    
     // Add box to body
     document.body.appendChild(this.element);
   }
@@ -62,6 +67,13 @@ export class Box {
     controlsContainer.classList.add('controls-container');
     controlsContainer.style.opacity = '0';
     controlsContainer.style.transition = 'opacity 0.3s ease';
+    controlsContainer.style.position = 'absolute';
+    controlsContainer.style.top = '40px';
+    controlsContainer.style.left = '0';
+    controlsContainer.style.width = '100%';
+    controlsContainer.style.padding = '10px';
+    controlsContainer.style.boxSizing = 'border-box';
+    controlsContainer.style.background = this.getBoxColor();
     this.element.appendChild(controlsContainer);
 
     // Add effect selector
@@ -74,11 +86,16 @@ export class Box {
     this.effectSelect.classList.add('effect-select');
     this.element.effectSelect = this.effectSelect;
     
-    // Add effect options
-    Object.keys(nativeEffects).forEach(effectName => {
+    // Add effect options - using the correct effect names
+    const effectNames = ['none', 'distortion', 'delay', 'reverb', 'convolver-reverb', 'flanger', 'stereo-chorus', 'bitcrusher', 'ring-modulator'];
+    effectNames.forEach(effectName => {
       const option = document.createElement('option');
       option.value = effectName;
-      option.textContent = effectName.charAt(0).toUpperCase() + effectName.slice(1);
+      // Format the display name nicely
+      const displayName = effectName.split('-').map(word => 
+        word.charAt(0).toUpperCase() + word.slice(1)
+      ).join(' ');
+      option.textContent = displayName;
       this.effectSelect.appendChild(option);
     });
     
@@ -211,6 +228,7 @@ export class Box {
     const newX = e.clientX - this.startX;
     const newY = e.clientY - this.startY;
     
+    // Only mark as dragged if we've moved more than 5 pixels
     if (Math.abs(newX - this.initialX) > 5 || Math.abs(newY - this.initialY) > 5) {
       this.hasDragged = true;
       debouncedCheckPosition();
@@ -223,50 +241,82 @@ export class Box {
   handleDragEnd(debouncedCheckPosition) {
     if (this.isDragging) {
       this.isDragging = false;
-      debouncedCheckPosition();
       
-      if (this.isBoxInsideTable(this.element)) {
-        this.startAudio();
-      } else {
-        this.stopAudio();
-      }
-      
+      // Only check position if we actually dragged
       if (this.hasDragged) {
+        debouncedCheckPosition();
+        
+        // Update box appearance
         this.element.classList.remove('expanded');
         const controlsContainer = this.element.querySelector('.controls-container');
         controlsContainer.style.opacity = '0';
         this.element.style.height = '40px';
       }
       
-      setTimeout(() => {
-        this.hasDragged = false;
-      }, 300);
+      // Reset drag state immediately
+      this.hasDragged = false;
     }
   }
 
   handleBoxClick(e) {
-    if (this.isDragging || this.hasDragged) {
+    // Don't handle click if we're dragging
+    if (this.isDragging) {
+      console.log('Box click ignored - currently dragging');
       return;
     }
 
-    if (this.effectSelect === e.target || this.mixSlider === e.target || this.volumeSlider === e.target) {
+    // Don't handle click if it was on a control element
+    if (e.target === this.effectSelect || 
+        e.target === this.mixSlider || 
+        e.target === this.volumeSlider ||
+        e.target.closest('select') || 
+        e.target.closest('input')) {
+      console.log('Box click ignored - control element clicked');
       return;
     }
     
+    // Toggle expanded state
     const isExpanded = this.element.classList.contains('expanded');
     this.element.classList.toggle('expanded');
     
-    const controlsContainer = this.element.querySelector('.controls-container');
-    controlsContainer.style.opacity = !isExpanded ? '1' : '0';
+    // Log the current state of the box
+    console.log('Box state before expansion:', {
+      isExpanded: !isExpanded,
+      currentHeight: this.element.style.height,
+      hasExpandedClass: this.element.classList.contains('expanded'),
+      computedHeight: window.getComputedStyle(this.element).height,
+      controlsOpacity: this.element.querySelector('.controls-container')?.style.opacity
+    });
     
-    this.adjustBoxSize(this.effectSelect.value);
+    // Update controls visibility
+    const controlsContainer = this.element.querySelector('.controls-container');
+    if (controlsContainer) {
+      controlsContainer.style.opacity = isExpanded ? '0' : '1';
+      console.log('Controls container opacity updated:', {
+        newOpacity: controlsContainer.style.opacity,
+        isExpanded: !isExpanded
+      });
+    }
+    
+    // Adjust box size based on current effect
+    const currentEffect = this.effectSelect ? this.effectSelect.value : 'none';
+    this.adjustBoxSize(currentEffect);
+    
+    // Log the final state
+    console.log('Box state after expansion:', {
+      isExpanded: !isExpanded,
+      newHeight: this.element.style.height,
+      hasExpandedClass: this.element.classList.contains('expanded'),
+      computedHeight: window.getComputedStyle(this.element).height,
+      controlsOpacity: this.element.querySelector('.controls-container')?.style.opacity
+    });
   }
 
   handleEffectChange(e) {
     const effectName = this.effectSelect.value;
     
     this.state.cleanupEffect();
-    this.state.setupEffect(effectName, nativeEffects, this.createParamSliders.bind(this));
+    this.state.setupEffect(effectName, { [effectName]: (audioCtx) => createEffect(effectName, audioCtx) }, this.createParamSliders.bind(this), this.element);
     
     if (effectName !== 'none') {
       this.element.classList.add('expanded');
@@ -302,96 +352,140 @@ export class Box {
   }
 
   createParamSliders(box, effectName) {
-    const boxParamContainer = box.paramContainer;
-    boxParamContainer.innerHTML = '';
+    if (!this.paramContainer) return;
     
-    const effect = nativeEffects[effectName];
-    if (!effect || !effect.params) {
-      return 0;
+    // Clear existing sliders
+    this.paramContainer.innerHTML = '';
+    
+    // Get effect parameters from the effect instance
+    const effectInstance = this.state.effectInstance;
+    if (!effectInstance) {
+      console.error(`Effect instance not initialized: ${effectName}`);
+      return;
     }
     
-    const paramEntries = Object.entries(effect.params);
-    const paramCount = paramEntries.length;
+    const params = effectInstance.getParams();
+    if (!params) {
+      console.error(`No parameters found for effect: ${effectName}`);
+      return;
+    }
     
-    paramEntries.forEach(([paramName, paramConfig]) => {
-      const paramSlider = document.createElement('div');
-      paramSlider.classList.add('param-slider');
-      paramSlider.style.margin = '5px 0';
-      paramSlider.style.padding = '0';
-      paramSlider.style.border = 'none';
-      paramSlider.style.background = 'none';
-      
+    // Create sliders for each parameter
+    Object.entries(params).forEach(([paramName, param]) => {
       const label = document.createElement('div');
       label.classList.add('control-label');
       label.textContent = paramName.toUpperCase();
-      label.style.marginBottom = '2px';
-      paramSlider.appendChild(label);
+      this.paramContainer.appendChild(label);
       
       const slider = document.createElement('input');
       slider.type = 'range';
-      slider.min = paramConfig.min;
-      slider.max = paramConfig.max;
-      slider.step = (paramConfig.max - paramConfig.min) / 100;
-      slider.value = paramConfig.default;
+      slider.min = param.min;
+      slider.max = param.max;
+      slider.value = param.default;
       slider.classList.add('param-control');
-      slider.style.width = '100%';
-      slider.style.margin = '0';
-      paramSlider.appendChild(slider);
-      
-      const valueDisplay = document.createElement('span');
-      valueDisplay.classList.add('value');
-      valueDisplay.textContent = paramConfig.default.toFixed(2);
-      valueDisplay.style.marginLeft = '5px';
-      paramSlider.appendChild(valueDisplay);
       
       slider.addEventListener('input', (e) => {
         const value = parseFloat(e.target.value);
-        valueDisplay.textContent = value.toFixed(2);
-        
-        if (box.effectNode && paramConfig.callback) {
-          paramConfig.callback(box.effectNode, value);
+        if (effectInstance) {
+          try {
+            param.callback(value);
+          } catch (error) {
+            console.warn(`Error updating parameter ${paramName}:`, error);
+          }
+        } else {
+          console.warn(`Effect instance not initialized for parameter: ${paramName}`);
         }
       });
       
-      boxParamContainer.appendChild(paramSlider);
+      this.paramContainer.appendChild(slider);
     });
-    
-    return paramCount;
   }
 
   adjustBoxSize(effectName) {
-    const paramCount = this.createParamSliders(this.element, effectName);
-    const baseHeight = 180;
-    
-    if (paramCount > 0 && effectName !== 'none') {
+    console.log('Adjusting box size:', {
+      effectName,
+      isExpanded: this.element.classList.contains('expanded'),
+      currentHeight: this.element.style.height
+    });
+
+    // If effect is "none", just set the base height
+    if (effectName === 'none') {
+      console.log('Setting base height for none effect');
+      if (this.element.classList.contains('expanded')) {
+        this.element.style.height = '180px';
+      } else {
+        this.element.style.height = '40px';
+      }
+      if (this.paramContainer) {
+        this.paramContainer.style.display = 'none';
+        this.paramLabel.style.display = 'none';
+      }
+      if (this.mixLabel) {
+        this.mixLabel.style.display = 'none';
+        this.mixSlider.style.display = 'none';
+      }
+      return;
+    }
+
+    // Get the effect instance and its parameters
+    const effectInstance = this.state.effectInstance;
+    if (!effectInstance) {
+      console.error(`Effect instance not initialized: ${effectName}`);
+      return;
+    }
+
+    const params = effectInstance.getParams();
+    if (!params) {
+      console.error(`No parameters found for effect: ${effectName}`);
+      return;
+    }
+
+    // Calculate the total height needed
+    const baseHeight = 180; // Base height for controls
+    const paramHeight = 60; // Height per parameter (label + slider)
+    const paramCount = Object.keys(params).length;
+    const volumeHeight = 60; // Height for volume control
+    const totalHeight = baseHeight + (paramCount * paramHeight) + volumeHeight;
+
+    console.log('Calculating new height:', {
+      paramCount,
+      baseHeight,
+      totalHeight,
+      isExpanded: this.element.classList.contains('expanded')
+    });
+
+    // Show/hide controls based on expanded state
+    if (this.element.classList.contains('expanded')) {
       this.paramLabel.style.display = 'block';
       this.paramContainer.style.display = 'block';
       this.mixLabel.style.display = 'block';
       this.mixSlider.style.display = 'block';
       
-      const paramHeight = 60;
-      const newHeight = baseHeight + ((paramCount + 1) * paramHeight);
+      // Force a reflow to ensure the transition works
+      this.element.offsetHeight;
       
-      this.element.style.transition = 'height 0.3s ease';
-      
-      if (this.element.classList.contains('expanded')) {
-        this.element.style.height = `${newHeight}px`;
-      } else {
-        this.element.style.height = '40px';
-      }
+      console.log('Setting expanded height:', totalHeight);
+      this.element.style.height = `${totalHeight}px`;
     } else {
       this.paramLabel.style.display = 'none';
       this.paramContainer.style.display = 'none';
-      this.mixLabel.style.display = effectName !== 'none' ? 'block' : 'none';
-      this.mixSlider.style.display = effectName !== 'none' ? 'block' : 'none';
+      this.mixLabel.style.display = 'none';
+      this.mixSlider.style.display = 'none';
       
-      if (this.element.classList.contains('expanded')) {
-        const mixHeight = effectName !== 'none' ? 60 : 0;
-        this.element.style.height = `${baseHeight + mixHeight}px`;
-      } else {
-        this.element.style.height = '40px';
-      }
+      // Force a reflow to ensure the transition works
+      this.element.offsetHeight;
+      
+      console.log('Setting collapsed height');
+      this.element.style.height = '40px';
     }
+
+    // Log the final state
+    console.log('Box size adjusted:', {
+      effectName,
+      isExpanded: this.element.classList.contains('expanded'),
+      newHeight: this.element.style.height,
+      computedHeight: window.getComputedStyle(this.element).height
+    });
   }
 
   updateBoxPosition() {
@@ -434,15 +528,60 @@ export class Box {
   }
 
   checkBoxPosition() {
-    if (this.isBoxInsideTable(this.element)) {
-      this.startAudio();
+    const table = document.getElementById('table');
+    if (!table) {
+      console.error('Table element not found');
+      return;
+    }
+    
+    const tableRect = table.getBoundingClientRect();
+    const boxRect = this.element.getBoundingClientRect();
+    
+    // Check if box is within the table
+    const insideTable = (
+      boxRect.left >= tableRect.left &&
+      boxRect.right <= tableRect.right &&
+      boxRect.top >= tableRect.top &&
+      boxRect.bottom <= tableRect.bottom
+    );
+    
+    console.log(`Box ${this.index + 1} position check:`, {
+      insideTable,
+      boxPosition: { left: boxRect.left, top: boxRect.top },
+      tableBounds: { left: tableRect.left, top: tableRect.top },
+      isPlaying: this.isPlaying,
+      audioContextState: this.audioManager.getState(),
+      hasEffectNode: !!this.state.effectNode,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Start or stop audio based on position
+    if (insideTable) {
+      if (!this.isPlaying) {
+        console.log(`Starting audio for box ${this.index + 1} - Current state:`, {
+          isPlaying: this.isPlaying,
+          audioContextState: this.audioManager.getState(),
+          timestamp: new Date().toISOString()
+        });
+        this.startAudio();
+      }
     } else {
-      this.stopAudio();
+      if (this.isPlaying) {
+        console.log(`Stopping audio for box ${this.index + 1} - Current state:`, {
+          isPlaying: this.isPlaying,
+          audioContextState: this.audioManager.getState(),
+          timestamp: new Date().toISOString()
+        });
+        this.stopAudio();
+      }
     }
   }
 
   async startAudio() {
-    if (this.isPlaying) return;
+    if (this.isPlaying) {
+      console.log(`Box ${this.index + 1} is already playing`);
+      return;
+    }
 
     if (!this.audioManager.isReady()) {
       try {
@@ -486,89 +625,83 @@ export class Box {
   }
 
   async startAudioPlayback() {
-    const delayMs = this.isSafari ? 300 : 50;
-    
-    setTimeout(async () => {
-      const hasBasicAudio = window.tempAudioElements && window.tempAudioElements[this.index];
-      const hasFullAudio = window.audioBuffers && window.audioBuffers[this.index];
-      
-      if (!hasBasicAudio && !hasFullAudio) {
-        console.error(`No audio available for box ${this.index + 1}`);
-        this.element.style.border = '2px solid red';
-        this.element.style.backgroundColor = '#ffebee';
-        
-        if (!this.element.querySelector('.reload-btn')) {
-          const reloadBtn = document.createElement('button');
-          reloadBtn.className = 'reload-btn';
-          reloadBtn.textContent = '↻';
-          reloadBtn.onclick = (e) => {
-            e.stopPropagation();
-            this.loadSingleAudioFile(this.audioFiles[this.index], this.index);
-          };
-          this.element.appendChild(reloadBtn);
-        }
+    try {
+      // If already playing, don't start again
+      if (this.state.isPlaying) {
+        console.log(`Box ${this.index + 1} is already playing`);
         return;
       }
       
-      this.element.style.border = '';
-      const reloadBtn = this.element.querySelector('.reload-btn');
-      if (reloadBtn) this.element.removeChild(reloadBtn);
+      console.log(`Starting audio playback for box ${this.index + 1}`);
       
-      if (hasFullAudio) {
-        if (!this.state.sourceNode) {
-          try {
-            this.state.sourceNode = this.audioManager.createNode('BufferSource');
-            this.state.sourceNode.buffer = window.audioBuffers[this.index];
-            this.state.sourceNode.loop = true;
-            this.state.sourceNode.playbackRate.value = 1.0;
-            this.state.sourceNode.connect(this.state.gainNode);
-            
-            if (this.effectSelect.value !== 'none') {
-              this.state.effectNode = this.state.cleanupEffect(this.state.effectNode, this.state.gainNode, this.state.dryNode);
-              this.state.setupAudioRouting();
-              this.state.effectNode = this.state.setupEffect(this.effectSelect.value, this.state.gainNode, this.state.wetNode, this.element);
-              const mixValue = this.mixSlider.value / 100;
-              this.state.applyMix(mixValue);
-            }
-
-            const volume = this.volumeSlider.value / 100;
-            this.state.gainNode.gain.setValueAtTime(volume, this.audioManager.getCurrentTime());
-            
-            this.state.sourceNode.start(0);
-            this.isPlaying = true;
-            this.element.isPlaying = true;
-          } catch (e) {
-            console.error(`Error starting audio for box ${this.index + 1}:`, e);
-            this.isPlaying = false;
-            this.element.isPlaying = false;
-          }
-        }
-      } else if (hasBasicAudio) {
-        const tempAudio = window.tempAudioElements[this.index];
-        if (tempAudio) {
-          tempAudio.currentTime = 0;
-          try {
-            await tempAudio.play();
-            this.isPlaying = true;
-            this.element.isPlaying = true;
-          } catch (e) {
-            console.error(`Error starting basic audio for box ${this.index + 1}:`, e);
-            this.isPlaying = false;
-            this.element.isPlaying = false;
-          }
-        }
+      // Ensure audio context is initialized
+      console.log('Initializing audio context...');
+      await this.audioManager.initialize();
+      
+      if (!this.audioManager.isReady()) {
+        console.error('Audio context not ready after initialization');
+        throw new Error('Audio context not ready');
       }
-    }, delayMs);
+      
+      // Check if we have an audio buffer
+      if (!window.audioBuffers || !window.audioBuffers[this.index]) {
+        console.error(`No audio buffer available for box ${this.index + 1}`);
+        throw new Error('No audio buffer available');
+      }
+      
+      console.log('Creating audio nodes...');
+      // Create audio nodes
+      this.state.gainNode = this.audioManager.createGain();
+      this.state.dryNode = this.audioManager.createGain();
+      this.state.wetNode = this.audioManager.createGain();
+      this.state.mixerNode = this.audioManager.createGain();
+      
+      // Initialize gain values
+      this.state.gainNode.gain.value = 0;
+      this.state.dryNode.gain.value = 1;
+      this.state.wetNode.gain.value = 0;
+      
+      console.log('Setting up audio routing...');
+      // Set up initial routing
+      this.state.setupAudioRouting();
+      
+      console.log('Creating source node...');
+      // Create source node
+      this.state.sourceNode = this.audioManager.createBufferSource();
+      this.state.sourceNode.buffer = window.audioBuffers[this.index];
+      this.state.sourceNode.loop = true;
+      
+      console.log('Connecting source to gain...');
+      // Connect source to gain
+      this.state.sourceNode.connect(this.state.gainNode);
+      
+      console.log('Starting playback...');
+      // Start playback
+      this.state.sourceNode.start(0);
+      this.state.isPlaying = true;
+      
+      console.log('Setting up fade in...');
+      // Fade in
+      this.state.gainNode.gain.setValueAtTime(0, this.audioManager.getCurrentTime());
+      this.state.gainNode.gain.linearRampToValueAtTime(1, this.audioManager.getCurrentTime() + 0.5);
+      
+      console.log(`Successfully started audio for box ${this.index + 1}`);
+    } catch (e) {
+      console.error(`Error starting audio for box ${this.index + 1}:`, e);
+      throw e;
+    }
   }
 
   async loadSingleAudioFile(url, index) {
     try {
+      console.log(`Loading audio file: ${url} for box ${index + 1}`);
       const response = await fetch(`/loops/${url}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const arrayBuffer = await response.arrayBuffer();
+      console.log(`Audio file loaded, decoding for box ${index + 1}`);
       
       // Create a temporary audio element for immediate playback
       const tempAudio = new Audio();
@@ -581,6 +714,10 @@ export class Box {
       
       // Decode the array buffer into an AudioBuffer
       const audioBuffer = await this.audioManager.decodeAudioData(arrayBuffer);
+      console.log(`Audio buffer decoded for box ${index + 1}`);
+      
+      // Store the audio buffer
+      this.audioBuffer = audioBuffer;
       window.audioBuffers = window.audioBuffers || {};
       window.audioBuffers[index] = audioBuffer;
       
@@ -598,6 +735,44 @@ export class Box {
       console.error(`Error loading audio file ${url}:`, error);
       window.audioLoadStatus[index] = 'error';
       throw error;
+    }
+  }
+
+  updateFromServer({ newX, newY, effect, mixValue, volume }) {
+    // Update position (if provided)
+    if (newX !== undefined && newY !== undefined) {
+      this.element.style.left = newX + 'px';
+      this.element.style.top = newY + 'px';
+      
+      // Check if inside table and play/stop audio
+      this.checkBoxPosition();
+    }
+    
+    // Update effect (if provided)
+    if (effect !== undefined && this.effectSelect) {
+      this.effectSelect.value = effect;
+      
+      // Trigger the change event to apply the effect
+      const changeEvent = new Event('change');
+      this.effectSelect.dispatchEvent(changeEvent);
+    }
+    
+    // Update mix value (if provided)
+    if (mixValue !== undefined && this.mixSlider) {
+      this.mixSlider.value = mixValue * 100;
+      
+      // Trigger the input event to apply the mix
+      const inputEvent = new Event('input');
+      this.mixSlider.dispatchEvent(inputEvent);
+    }
+    
+    // Update volume (if provided)
+    if (volume !== undefined && this.volumeSlider) {
+      this.volumeSlider.value = volume * 100;
+      
+      // Trigger the input event to apply the volume
+      const inputEvent = new Event('input');
+      this.volumeSlider.dispatchEvent(inputEvent);
     }
   }
 } 

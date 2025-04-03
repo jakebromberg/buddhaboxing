@@ -11,6 +11,29 @@ const io = socketIO(server);
 // Serve static files from public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Add audio files endpoint
+app.get(['/loops', '/loops/'], (req, res) => {
+  const fs = require('fs');
+  const loopsDir = path.join(__dirname, 'public', 'loops');
+  
+  fs.readdir(loopsDir, (err, files) => {
+    if (err) {
+      console.error('Error reading loops directory:', err);
+      return res.status(500).json({ error: 'Failed to read audio files' });
+    }
+    
+    // Filter for audio files (you might want to adjust this based on your file types)
+    const audioFiles = files.filter(file => 
+      file.endsWith('.mp3') || 
+      file.endsWith('.wav') || 
+      file.endsWith('.ogg') ||
+      file.endsWith('.m4a')  // Add m4a support
+    );
+    
+    res.json(audioFiles);
+  });
+});
+
 // Track sessions and their states
 const sessions = {};
 

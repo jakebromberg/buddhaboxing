@@ -10,17 +10,23 @@ class AudioContextManager {
 
   // Initialize the audio context
   async initialize() {
-    if (this.isInitialized) {
+    console.log('Initializing audio context...');
+    console.log('Current state:', this.#audioCtx ? this.#audioCtx.state : 'not created');
+    
+    if (this.isInitialized && this.#audioCtx && this.#audioCtx.state === 'running') {
+      console.log('Audio context already initialized and running');
       return;
     }
 
     // Create audio context if it doesn't exist
     if (!this.#audioCtx) {
+      console.log('Creating new audio context');
       this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
 
     // Wait for audio context to be ready
     if (this.#audioCtx.state === 'running') {
+      console.log('Audio context is already running');
       this.isInitialized = true;
       return;
     }
@@ -49,17 +55,23 @@ class AudioContextManager {
         }
       } else {
         // For other browsers, try direct resume
+        console.log('Attempting to resume audio context');
         try {
           await this.#audioCtx.resume();
-          console.log('Audio context resumed');
+          console.log('Audio context resumed successfully');
         } catch (e) {
           console.warn('Audio context resume failed:', e);
+          // Wait for user interaction if resume fails
+          await this.waitForUserInteraction();
         }
       }
     } catch (e) {
       console.warn('Audio context initialization failed:', e);
+      // If all else fails, create a new context
+      this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     } finally {
       this.isInitialized = true;
+      console.log('Audio context initialization complete. State:', this.#audioCtx.state);
     }
   }
 
@@ -152,11 +164,15 @@ class AudioContextManager {
             console.log("Audio context resumed on second attempt");
           } catch (e) {
             console.warn("Second resume attempt failed:", e);
+            // If still failing, wait for user interaction
+            await this.waitForUserInteraction();
           }
         }
       }
     } catch (e) {
       console.warn("Error during Safari unlock:", e);
+      // If unlock fails, wait for user interaction
+      await this.waitForUserInteraction();
     }
   }
 
@@ -170,10 +186,7 @@ class AudioContextManager {
 
   // Get current time
   getCurrentTime() {
-    if (!this.#audioCtx) {
-      throw new Error('Audio context not initialized');
-    }
-    return this.#audioCtx.currentTime;
+    return this.#audioCtx ? this.#audioCtx.currentTime : 0;
   }
 
   // Get sample rate
@@ -186,36 +199,66 @@ class AudioContextManager {
 
   // Get destination
   getDestination() {
-    if (!this.#audioCtx) {
-      throw new Error('Audio context not initialized');
-    }
-    return this.#audioCtx.destination;
+    return this.#audioCtx ? this.#audioCtx.destination : null;
   }
 
   // Get state
   getState() {
-    if (!this.#audioCtx) {
-      return 'not-initialized';
-    }
-    return this.#audioCtx.state;
+    return this.#audioCtx ? this.#audioCtx.state : 'suspended';
   }
 
   // Resume audio context
   async resume() {
-    if (!this.#audioCtx) {
-      throw new Error('Audio context not initialized');
+    if (this.#audioCtx && this.#audioCtx.state !== 'running') {
+      await this.#audioCtx.resume();
     }
-    return this.#audioCtx.resume();
   }
 
   // Check if the context is initialized
   isReady() {
-    return this.isInitialized && this.#audioCtx !== null;
+    return this.#audioCtx && this.#audioCtx.state === 'running';
   }
 
   // Check if running in Safari
   isSafariBrowser() {
     return this.isSafari;
+  }
+
+  // Get the audio context
+  getAudioContext() {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    return this.#audioCtx;
+  }
+
+  // Decode audio data
+  async decodeAudioData(arrayBuffer) {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    return this.#audioCtx.decodeAudioData(arrayBuffer);
+  }
+
+  createGain() {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    return this.#audioCtx.createGain();
+  }
+
+  createBufferSource() {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    return this.#audioCtx.createBufferSource();
+  }
+
+  connect(node) {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    node.connect(this.#audioCtx.destination);
   }
 }
 
