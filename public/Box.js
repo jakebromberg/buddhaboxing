@@ -225,23 +225,10 @@ export class Box {
       this.isDragging = false;
       debouncedCheckPosition();
       
-      const table = document.getElementById('table');
-      if (table) {
-        const tableRect = table.getBoundingClientRect();
-        const boxRect = this.element.getBoundingClientRect();
-        
-        const insideTable = (
-          boxRect.left >= tableRect.left &&
-          boxRect.right <= tableRect.right &&
-          boxRect.top >= tableRect.top &&
-          boxRect.bottom <= tableRect.bottom
-        );
-        
-        if (insideTable) {
-          this.startAudio();
-        } else {
-          this.stopAudio();
-        }
+      if (this.isBoxInsideTable(this.element)) {
+        this.startAudio();
+      } else {
+        this.stopAudio();
       }
       
       if (this.hasDragged) {
@@ -431,21 +418,23 @@ export class Box {
     requestAnimationFrame(() => this.updateBoxPosition());
   }
 
-  checkBoxPosition() {
+  isBoxInsideTable(box) {
     const table = document.getElementById('table');
-    if (!table) return;
+    if (!table) return false;
     
     const tableRect = table.getBoundingClientRect();
-    const boxRect = this.element.getBoundingClientRect();
+    const boxRect = box.getBoundingClientRect();
     
-    const insideTable = (
+    return (
       boxRect.left >= tableRect.left &&
       boxRect.right <= tableRect.right &&
       boxRect.top >= tableRect.top &&
       boxRect.bottom <= tableRect.bottom
     );
-    
-    if (insideTable) {
+  }
+
+  checkBoxPosition() {
+    if (this.isBoxInsideTable(this.element)) {
       this.startAudio();
     } else {
       this.stopAudio();
@@ -599,25 +588,12 @@ export class Box {
               window.audioBuffers[index] = audioBuffer;
               
               const box = this.element;
-              const table = document.getElementById('table');
-              if (table) {
-                const tableRect = table.getBoundingClientRect();
-                const boxRect = box.getBoundingClientRect();
-                
-                const insideTable = (
-                  boxRect.left >= tableRect.left &&
-                  boxRect.right <= tableRect.right &&
-                  boxRect.top >= tableRect.top &&
-                  boxRect.bottom <= tableRect.bottom
-                );
-                
-                if (insideTable) {
-                  tempAudio.loop = true;
-                  tempAudio.volume = box.volumeSlider ? box.volumeSlider.value / 100 : 1;
-                  tempAudio.play().catch(e => {
-                    console.warn(`Could not start immediate playback for box ${index + 1}:`, e);
-                  });
-                }
+              if (this.isBoxInsideTable(box)) {
+                tempAudio.loop = true;
+                tempAudio.volume = box.volumeSlider ? box.volumeSlider.value / 100 : 1;
+                tempAudio.play().catch(e => {
+                  console.warn(`Could not start immediate playback for box ${index + 1}:`, e);
+                });
               }
               
               resolve();
