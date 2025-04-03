@@ -218,6 +218,14 @@ export class Box {
     this.initialX = this.element.offsetLeft;
     this.initialY = this.element.offsetTop;
     
+    // Try to initialize audio context when dragging starts
+    if (!this.audioManager.isReady()) {
+      console.log('Audio context not ready, attempting initialization on drag');
+      this.audioManager.initialize().catch(error => {
+        console.warn('Audio initialization failed during drag:', error);
+      });
+    }
+    
     this.updateBoxPosition();
   }
 
@@ -583,6 +591,28 @@ export class Box {
       return;
     }
 
+    // Check if audio buffer is available
+    if (!window.audioBuffers || !window.audioBuffers[this.index]) {
+      console.log(`Audio buffer not available for box ${this.index + 1}, waiting for it to load...`);
+      try {
+        // Wait for the audio buffer to be loaded
+        await new Promise((resolve, reject) => {
+          const checkBuffer = () => {
+            if (window.audioBuffers && window.audioBuffers[this.index]) {
+              resolve();
+            } else {
+              setTimeout(checkBuffer, 100);
+            }
+          };
+          checkBuffer();
+        });
+        console.log(`Audio buffer loaded for box ${this.index + 1}`);
+      } catch (error) {
+        console.warn(`Error waiting for audio buffer: ${error}`);
+        return;
+      }
+    }
+
     if (!this.audioManager.isReady()) {
       try {
         await this.audioManager.initialize();
@@ -773,6 +803,17 @@ export class Box {
       // Trigger the input event to apply the volume
       const inputEvent = new Event('input');
       this.volumeSlider.dispatchEvent(inputEvent);
+    }
+  }
+
+  updateAudioContext() {
+    console.log('Updating box audio context');
+    if (this.audioManager.isReady()) {
+      // Reinitialize audio nodes if needed
+      if (this.state) {
+        this.state.cleanup();
+        this.state.setupEffect(this.effectSelect.value);
+      }
     }
   }
 } 

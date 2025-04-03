@@ -12,6 +12,7 @@ class AudioContextManager {
   async initialize() {
     console.log('Initializing audio context...');
     console.log('Current state:', this.#audioCtx ? this.#audioCtx.state : 'not created');
+    console.log('Is initialized:', this.isInitialized);
     
     if (this.isInitialized && this.#audioCtx && this.#audioCtx.state === 'running') {
       console.log('Audio context already initialized and running');
@@ -22,86 +23,67 @@ class AudioContextManager {
     if (!this.#audioCtx) {
       console.log('Creating new audio context');
       this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      console.log('Audio context created, initial state:', this.#audioCtx.state);
     }
 
-    // Wait for audio context to be ready
-    if (this.#audioCtx.state === 'running') {
-      console.log('Audio context is already running');
-      this.isInitialized = true;
-      return;
-    }
-
-    try {
-      // For Safari, try the special unlock first
-      if (this.isSafari) {
-        console.log('Safari detected, attempting special unlock');
-        try {
-          await this.safariAudioUnlock();
-          console.log('Safari unlock completed, resuming context');
-          await this.#audioCtx.resume();
-          console.log('Audio context resumed after Safari unlock');
-        } catch (e) {
-          console.log('Safari unlock failed, trying direct resume');
-          try {
-            await this.#audioCtx.resume();
-            console.log('Audio context resumed directly');
-          } catch (e) {
-            console.warn('Audio context resume failed:', e);
-            // For Safari, we need to wait for user interaction
-            if (this.isSafari) {
-              await this.waitForUserInteraction();
-            }
-          }
-        }
-      } else {
-        // For other browsers, try direct resume
-        console.log('Attempting to resume audio context');
-        try {
-          await this.#audioCtx.resume();
-          console.log('Audio context resumed successfully');
-        } catch (e) {
-          console.warn('Audio context resume failed:', e);
-          // Wait for user interaction if resume fails
-          await this.waitForUserInteraction();
-        }
+    // For Safari, we need to wait for user interaction before resuming
+    if (this.isSafari) {
+      console.log('Safari detected, waiting for user interaction before resuming');
+      await this.waitForUserInteraction();
+    } else {
+      // For other browsers, try to resume directly
+      try {
+        await this.#audioCtx.resume();
+        console.log('Audio context resumed successfully, new state:', this.#audioCtx.state);
+      } catch (e) {
+        console.warn('Audio context resume failed:', e);
+        await this.waitForUserInteraction();
       }
-    } catch (e) {
-      console.warn('Audio context initialization failed:', e);
-      // If all else fails, create a new context
-      this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    } finally {
-      this.isInitialized = true;
-      console.log('Audio context initialization complete. State:', this.#audioCtx.state);
     }
+
+    this.isInitialized = true;
+    console.log('Audio context initialization complete. Final state:', this.#audioCtx.state);
   }
 
   async waitForUserInteraction() {
-    console.log('Waiting for user interaction to resume audio context');
+    console.log("Setting up user interaction listeners");
     
-    return new Promise((resolve) => {
+    try {
+      // Create a function to handle the interaction
       const handleInteraction = async () => {
-        console.log('User interaction detected, attempting to resume audio context');
+        console.log("User interaction detected, attempting to resume");
         try {
-          await this.#audioCtx.resume();
-          console.log('Audio context resumed after user interaction');
+          await this.resumeWithTimeout();
+          console.log("Resume successful after user interaction, new state:", this.#audioCtx.state);
         } catch (e) {
-          console.warn('Audio context resume failed after user interaction:', e);
+          console.warn("Resume failed after user interaction:", e);
         } finally {
-          resolve();
+          // Remove event listeners
+          events.forEach(event => {
+            document.removeEventListener(event, handleInteraction);
+          });
         }
       };
 
       // Add listeners for various user interactions
-      document.addEventListener('click', handleInteraction, { once: true });
-      document.addEventListener('touchstart', handleInteraction, { once: true });
-      document.addEventListener('mousedown', handleInteraction, { once: true });
-      document.addEventListener('keydown', handleInteraction, { once: true });
-    });
+      const events = ['click', 'touchstart', 'mousedown', 'keydown'];
+      events.forEach(event => {
+        document.addEventListener(event, handleInteraction, { once: true });
+      });
+      
+      console.log("User interaction listeners set up");
+    } catch (error) {
+      console.warn("Error in user interaction handler:", error);
+      throw error;
+    }
   }
 
   // Helper function to create a delay
   async delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      // Busy wait
+    }
   }
 
   // Safari-specific audio unlock
@@ -109,6 +91,7 @@ class AudioContextManager {
     if (!this.isSafari) return;
     
     console.log("Applying Safari-specific audio unlock");
+    console.log("Current audio context state:", this.#audioCtx ? this.#audioCtx.state : 'not created');
     
     // Check if audio context is already running
     if (this.#audioCtx && this.#audioCtx.state === 'running') {
@@ -118,60 +101,61 @@ class AudioContextManager {
 
     // Ensure audio context is properly initialized
     if (!this.#audioCtx) {
-      console.log("Creating new audio context");
+      console.log("Creating new audio context for unlock");
       this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      console.log("New audio context state:", this.#audioCtx.state);
     }
 
-    // Create a silent oscillator instead of using an MP3 file
-    const oscillator = this.#audioCtx.createOscillator();
-    const gainNode = this.#audioCtx.createGain();
-    
-    // Configure for silence
-    oscillator.type = 'sine';
-    oscillator.frequency.value = 1; // Ultra low frequency
-    gainNode.gain.value = 0; // Zero gain
-    
-    // Connect nodes
-    oscillator.connect(gainNode);
-    gainNode.connect(this.#audioCtx.destination);
-    
-    // Start the oscillator
-    oscillator.start(0);
-    
     try {
-      // Stop after a very short time
+      // First try a simple resume with timeout
+      console.log("Attempting initial resume");
+      await this.resumeWithTimeout();
+      console.log("Initial resume successful, new state:", this.#audioCtx.state);
+      return;
+    } catch (e) {
+      console.log("Initial resume failed, trying oscillator method");
+    }
+
+    // If simple resume fails, try the oscillator method
+    try {
+      // Create a silent oscillator
+      console.log("Creating silent oscillator for unlock");
+      const oscillator = this.#audioCtx.createOscillator();
+      const gainNode = this.#audioCtx.createGain();
+      
+      // Configure for silence
+      oscillator.type = 'sine';
+      oscillator.frequency.value = 1; // Ultra low frequency
+      gainNode.gain.value = 0; // Zero gain
+      
+      // Connect nodes
+      console.log("Connecting oscillator nodes");
+      oscillator.connect(gainNode);
+      gainNode.connect(this.#audioCtx.destination);
+      
+      // Start the oscillator
+      console.log("Starting oscillator");
+      oscillator.start(0);
+      
+      // Wait a short time
+      console.log("Waiting for oscillator to play");
       await this.delay(100);
       
+      // Stop and disconnect
+      console.log("Stopping and disconnecting oscillator");
       oscillator.stop();
       oscillator.disconnect();
       gainNode.disconnect();
       
-      // Try to resume the audio context
-      console.log("Attempting to resume audio context");
-      try {
-        await this.#audioCtx.resume();
-        console.log("Audio context resumed successfully");
-      } catch (e) {
-        console.warn("Failed to resume audio context:", e);
-        // If resume fails, check if context is already running
-        if (this.#audioCtx.state === 'running') {
-          console.log("Audio context is already running despite resume error");
-        } else {
-          // Try one more time with a delay
-          await this.delay(100);
-          try {
-            await this.#audioCtx.resume();
-            console.log("Audio context resumed on second attempt");
-          } catch (e) {
-            console.warn("Second resume attempt failed:", e);
-            // If still failing, wait for user interaction
-            await this.waitForUserInteraction();
-          }
-        }
-      }
+      // Try to resume with timeout
+      console.log("Attempting to resume after oscillator");
+      await this.resumeWithTimeout();
+      console.log("Resume successful after oscillator, new state:", this.#audioCtx.state);
     } catch (e) {
-      console.warn("Error during Safari unlock:", e);
-      // If unlock fails, wait for user interaction
+      console.warn("Oscillator method failed:", e);
+      
+      // If both methods fail, wait for user interaction
+      console.log("Waiting for user interaction after all methods failed");
       await this.waitForUserInteraction();
     }
   }
@@ -259,6 +243,45 @@ class AudioContextManager {
       throw new Error('Audio context not initialized');
     }
     node.connect(this.#audioCtx.destination);
+  }
+
+  async resumeWithTimeout(timeoutMs = 1000) {
+    console.log("Starting resume with timeout");
+    const startTime = Date.now();
+    let timeoutId;
+    
+    try {
+      // Create a promise that rejects after timeout
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error('Resume operation timed out'));
+        }, timeoutMs);
+      });
+
+      // Race between resume and timeout
+      await Promise.race([
+        this.#audioCtx.resume(),
+        timeoutPromise
+      ]);
+
+      // Clear the timeout if resume succeeds
+      clearTimeout(timeoutId);
+      console.log("Resume completed successfully");
+      return;
+    } catch (error) {
+      // Clear the timeout in case of error
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      
+      if (error.message === 'Resume operation timed out') {
+        console.warn("Resume operation timed out");
+        throw error;
+      }
+      
+      console.warn("Resume failed with error:", error);
+      throw error;
+    }
   }
 }
 

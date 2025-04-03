@@ -43,23 +43,23 @@ function updateBoxPosition(box, index) {
 // Function to load audio files
 async function loadAudioFiles() {
   try {
-    // Hardcode the list of audio files we know exist
-    audioFiles = [
-      '01.m4a', '02.m4a', '03.m4a', '04.m4a', '05.m4a',
-      '06.m4a', '07.m4a', '08.m4a', '09.m4a'
-    ];
+    console.log('Starting audio file loading...');
     
-    // Initialize audio load status
+    console.log('Initializing audio load status...');
     window.audioLoadStatus = {};
     window.audioBuffers = {};
     window.tempAudioElements = {};
     
     // Ensure audio context is initialized
+    console.log('Checking audio context before loading files...');
     await audioManager.initialize();
+    console.log('Audio context state before loading:', audioManager.getState());
     
     // Load each audio file
+    console.log('Starting to load individual audio files...');
     const loadPromises = audioFiles.map(async (url, index) => {
       try {
+        console.log(`Loading audio file ${index + 1}: ${url}`);
         const response = await fetch(`/loops/${url}`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -67,6 +67,7 @@ async function loadAudioFiles() {
         const arrayBuffer = await response.arrayBuffer();
         
         // Create a temporary audio element for immediate playback
+        console.log(`Creating temporary audio element for file ${index + 1}`);
         const tempAudio = new Audio();
         tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
         
@@ -74,8 +75,10 @@ async function loadAudioFiles() {
         window.audioLoadStatus[index] = 'basic-ready';
         
         // Decode the array buffer into an AudioBuffer
+        console.log(`Decoding audio buffer for file ${index + 1}`);
         const audioBuffer = await audioManager.decodeAudioData(arrayBuffer);
         window.audioBuffers[index] = audioBuffer;
+        console.log(`Successfully loaded and decoded file ${index + 1}`);
         
         return { index, success: true };
       } catch (error) {
@@ -85,6 +88,7 @@ async function loadAudioFiles() {
       }
     });
     
+    console.log('Waiting for all audio files to load...');
     const results = await Promise.all(loadPromises);
     const failedLoads = results.filter(r => !r.success);
     
@@ -92,9 +96,11 @@ async function loadAudioFiles() {
       console.warn('Some audio files failed to load:', failedLoads);
     }
     
+    console.log('Audio file loading complete');
     return results;
   } catch (error) {
     console.error('Error loading audio files:', error);
+    console.error('Error stack:', error.stack);
     throw error;
   }
 }
@@ -513,12 +519,73 @@ if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf(
 // Load audio files and create boxes
 async function initializeApp() {
   try {
-    console.log('Loading audio files...');
-    await loadAudioFiles();
-    console.log('Audio files loaded, creating boxes...');
+    console.log('Starting app initialization...');
+    
+    // Initialize audio files first (without waiting for audio context)
+    console.log('Initializing audio files...');
+    audioFiles = [
+      '01.m4a', '02.m4a', '03.m4a', '04.m4a', '05.m4a',
+      '06.m4a', '07.m4a', '08.m4a', '09.m4a'
+    ];
+    console.log('Audio files initialized');
+    
+    // Create boxes immediately
+    console.log('Creating boxes...');
     createBoxes();
+    console.log('Boxes created, checking visibility...');
+    
+    // Apply Safari-specific rendering fix immediately
+    if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf('Chrome') === -1) {
+      console.log('Safari detected, applying special box rendering fix');
+      const boxes = document.querySelectorAll('.box');
+      console.log(`Found ${boxes.length} boxes to fix`);
+      
+      for (const [index, box] of boxes.entries()) {
+        console.log(`Fixing box ${index + 1}`);
+        // Force repaint
+        box.style.display = 'none';
+        await new Promise(resolve => setTimeout(resolve, 10));
+        box.style.display = 'flex';
+        console.log(`Box ${index + 1} fixed`);
+      }
+    }
+    
+    // Initialize audio context and load buffers in the background
+    console.log('Starting audio initialization...');
+    try {
+      await initializeAudio();
+    } catch (error) {
+      console.warn('Audio initialization failed:', error);
+    }
+    
+    console.log('App initialization complete');
   } catch (error) {
     console.error('Error initializing app:', error);
+    console.error('Error stack:', error.stack);
+  }
+}
+
+async function initializeAudio() {
+  try {
+    // Initialize audio context
+    console.log('Initializing audio context...');
+    await audioManager.initialize();
+    console.log('Audio context initialized, state:', audioManager.getState());
+    
+    // Load audio files and buffers
+    console.log('Loading audio files...');
+    await loadAudioFiles();
+    console.log('Audio files loaded successfully');
+    
+    // Update all boxes to use the new audio context
+    for (const box of boxes) {
+      if (box.updateAudioContext) {
+        await box.updateAudioContext();
+      }
+    }
+  } catch (error) {
+    console.warn('Error initializing audio:', error);
+    throw error;
   }
 }
 
