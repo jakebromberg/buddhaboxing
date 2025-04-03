@@ -1,6 +1,6 @@
 // Import AudioContextManager
 import AudioContextManager from './audioContextManager.js';
-import { BoxState } from './boxState.js';
+import { Box } from './Box.js';
 import { nativeEffects } from './nativeEffects.js';
 
 // Create audio manager instance
@@ -102,7 +102,7 @@ const eventHandlers = {
       const table = document.getElementById('table');
       if (table) {
         const tableRect = table.getBoundingClientRect();
-        const boxRect = box.getBoundingClientRect();
+        const boxRect = box.element.getBoundingClientRect();
         
         const insideTable = (
           boxRect.left >= tableRect.left &&
@@ -156,8 +156,8 @@ const eventHandlers = {
       
       // Only collapse if we actually dragged
       if (box.hasDragged) {
-        box.classList.remove('expanded');
-        const controlsContainer = box.querySelector('.controls-container');
+        box.element.classList.remove('expanded');
+        const controlsContainer = box.element.querySelector('.controls-container');
         controlsContainer.style.opacity = '0';
         box.style.height = '40px';
       }
@@ -197,11 +197,11 @@ const eventHandlers = {
     }
     
     // Toggle expanded state
-    const isExpanded = box.classList.contains('expanded');
-    box.classList.toggle('expanded');
+    const isExpanded = box.element.classList.contains('expanded');
+    box.element.classList.toggle('expanded');
     
     // Show/hide controls container
-    const controlsContainer = box.querySelector('.controls-container');
+    const controlsContainer = box.element.querySelector('.controls-container');
     controlsContainer.style.opacity = !isExpanded ? '1' : '0';
     
     // Adjust box size based on current effect
@@ -222,8 +222,8 @@ const eventHandlers = {
     // If we have an effect selected, ensure the box is expanded
     if (effectName !== 'none') {
       // Force the box to be expanded
-      box.classList.add('expanded');
-      const controlsContainer = box.querySelector('.controls-container');
+      box.element.classList.add('expanded');
+      const controlsContainer = box.element.querySelector('.controls-container');
       controlsContainer.style.opacity = '1';
       
       // Adjust box size based on effect parameters
@@ -312,7 +312,7 @@ socket.on('initialState', (data) => {
 
 // Tracking variables for multi-user functionality
 let boxPositionsFromServer = null;
-let createdBoxes = [];
+let boxes = [];
 let syncEnabled = true;
 let lastUpdateTime = 0;
 const UPDATE_INTERVAL = 1000 / 30; // 30 FPS for smooth updates
@@ -464,7 +464,7 @@ function loadAudioFiles() {
       
       // Load files in parallel with a limit
       const loadPromises = filesToLoad.map(({ url, index }) => {
-        return loadSingleAudioFile(url, index);
+        return boxes[index].loadSingleAudioFile(url, index);
       });
 
       return Promise.allSettled(loadPromises)
@@ -479,88 +479,6 @@ function loadAudioFiles() {
       console.error('Error during audio loading:', error);
       showAudioLoadingErrorMessage();
     });
-}
-
-// Function to load single audio file
-function loadSingleAudioFile(url, index) {
-  return new Promise((resolve, reject) => {
-    console.log(`Starting to load audio file: ${url} for index ${index}`);
-
-    // Check if we're in debug mode
-    if (window.debugNoAudio) {
-      console.log(`Debug mode: Creating dummy buffer for ${url}`);
-      const dummyBuffer = audioManager.createNode('Buffer', { 
-        numberOfChannels: 2, 
-        length: audioManager.getSampleRate() * 2, 
-        sampleRate: audioManager.getSampleRate() 
-      });
-      audioBuffers[index] = dummyBuffer;
-      window.audioLoadStatus[index] = 'loaded';
-      resolve();
-      return;
-    }
-
-    // First, load the raw audio for immediate playback
-    console.log(`Fetching audio file: /loops/${url}`);
-    fetch(`/loops/${url}`)
-      .then(response => {
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        console.log(`Successfully fetched ${url}, converting to array buffer`);
-        return response.arrayBuffer();
-      })
-      .then(arrayBuffer => {
-        console.log(`Creating temporary audio element for ${url}`);
-        // Create a temporary audio element for immediate playback
-        const tempAudio = new Audio();
-        tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
-        
-        // Store the temp audio for this box
-        window.tempAudioElements = window.tempAudioElements || {};
-        window.tempAudioElements[index] = tempAudio;
-        
-        // Update status to indicate basic playback is ready
-        window.audioLoadStatus[index] = 'basic-ready';
-        
-        // Start playing immediately if the box is inside the table
-        const box = createdBoxes[index];
-        if (box) {
-          const table = document.getElementById('table');
-          if (table) {
-            const tableRect = table.getBoundingClientRect();
-            const boxRect = box.getBoundingClientRect();
-            
-            const insideTable = (
-              boxRect.left >= tableRect.left &&
-              boxRect.right <= tableRect.right &&
-              boxRect.top >= tableRect.top &&
-              boxRect.bottom <= tableRect.bottom
-            );
-            
-            if (insideTable) {
-              console.log(`Starting immediate playback for box ${index + 1}`);
-              tempAudio.loop = true;
-              tempAudio.volume = box.volumeSlider ? box.volumeSlider.value / 100 : 1;
-              tempAudio.play().catch(e => {
-                console.warn(`Could not start immediate playback for box ${index + 1}:`, e);
-              });
-            }
-          }
-        }
-        
-        // Store the array buffer for later decoding
-        window.audioBuffers = window.audioBuffers || {};
-        window.audioBuffers[index] = arrayBuffer;
-        
-        resolve();
-      })
-      .catch(error => {
-        console.error(`Error loading audio file ${url}:`, error);
-        window.audioLoadStatus[index] = 'error';
-        reject(error);
-      });
-  });
 }
 
 // Create session display
@@ -641,9 +559,9 @@ function createSessionDisplay() {
 
 // Receive box updates from other clients
 socket.on('boxUpdated', ({ boxId, newX, newY, effect, mixValue, volume }) => {
-  if (!syncEnabled || !createdBoxes[boxId]) return;
+  if (!syncEnabled || !boxes[boxId]) return;
   
-  const box = createdBoxes[boxId];
+  const box = boxes[boxId];
   
   // Temporarily disable syncing to avoid loops
   const oldSync = syncEnabled;
@@ -651,11 +569,11 @@ socket.on('boxUpdated', ({ boxId, newX, newY, effect, mixValue, volume }) => {
   
   // Update position (if provided)
   if (newX !== undefined && newY !== undefined) {
-    box.style.left = newX + 'px';
-    box.style.top = newY + 'px';
+    box.element.style.left = newX + 'px';
+    box.element.style.top = newY + 'px';
     
     // Check if inside table and play/stop audio
-    checkBoxPosition(box, boxId);
+    box.checkBoxPosition();
   }
   
   // Update effect (if provided)
@@ -700,31 +618,32 @@ function createBoxes() {
   
   // Create a box for each audio file
   audioFiles.forEach((file, index) => {
-    createBox(index, table);
+    const box = new Box(index, audioManager, isSafari, audioFiles);
+    boxes[index] = box;
   });
   
   // Apply any positions received from server
   if (boxPositionsFromServer) {
     boxPositionsFromServer.forEach((pos, index) => {
-      if (createdBoxes[index]) {
-        createdBoxes[index].style.left = pos.x + 'px';
-        createdBoxes[index].style.top = pos.y + 'px';
+      if (boxes[index]) {
+        boxes[index].element.style.left = pos.x + 'px';
+        boxes[index].element.style.top = pos.y + 'px';
         
         // Check if inside table and play/stop audio
-        checkBoxPosition(createdBoxes[index], index);
+        boxes[index].checkBoxPosition();
       }
     });
   }
   
   // Log how many boxes were created
-  console.log(`Created ${createdBoxes.length} boxes`);
+  console.log(`Created ${boxes.length} boxes`);
   
   // Add a small delay and recheck visibility of all boxes
   setTimeout(() => {
-    createdBoxes.forEach((box, index) => {
-      if (box && !box.isConnected) {
+    boxes.forEach((box, index) => {
+      if (box && !box.element.isConnected) {
         console.error(`Box ${index+1} is not connected to DOM, recreating`);
-        document.body.appendChild(box);
+        document.body.appendChild(box.element);
       }
     });
   }, 500);
@@ -754,7 +673,7 @@ function checkBoxPosition(box, boxId) {
   }
   
   const tableRect = table.getBoundingClientRect();
-  const boxRect = box.getBoundingClientRect();
+  const boxRect = box.element.getBoundingClientRect();
   
   // Check if box is within the table
   const insideTable = (
@@ -803,11 +722,11 @@ function sendBoxUpdate(update) {
   
   // Get current position
   const box = update.box || this;
-  const rect = box.getBoundingClientRect();
+  const rect = box.element.getBoundingClientRect();
   
   // Create update object
   const boxUpdate = {
-    boxId: createdBoxes.indexOf(box),
+    boxId: boxes.indexOf(box),
     newX: rect.left,
     newY: rect.top,
     ...update
@@ -815,455 +734,6 @@ function sendBoxUpdate(update) {
   
   // Send to server
   socket.emit('boxUpdated', boxUpdate);
-}
-
-function createBox(index, table) {
-  console.log(`Creating box ${index+1}`);
-  
-  // Create box element
-  const box = document.createElement('div');
-  box.classList.add('box');
-  box.style.backgroundColor = boxColors[index];
-  
-  // Make boxes visible with explicit visibility and opacity
-  box.style.visibility = 'visible';
-  box.style.opacity = '1';
-  box.style.zIndex = '1';
-  
-  // Store reference to this box
-  createdBoxes[index] = box;
-  
-  // Create box state manager - but don't initialize audio yet
-  const state = new BoxState(box, index);
-  
-  // Store boxId for reference
-  box.boxId = index;
-  
-  // Add box number
-  const boxNumber = document.createElement('div');
-  boxNumber.classList.add('box-number');
-  boxNumber.textContent = (index + 1).toString().padStart(2, '0');
-  box.appendChild(boxNumber);
-
-  // Create a container for controls that will be shown/hidden
-  const controlsContainer = document.createElement('div');
-  controlsContainer.classList.add('controls-container');
-  controlsContainer.style.opacity = '0'; // Initially hidden
-  controlsContainer.style.transition = 'opacity 0.3s ease';
-  box.appendChild(controlsContainer);
-
-  // Add effect selector
-  const effectLabel = document.createElement('div');
-  effectLabel.classList.add('control-label');
-  effectLabel.textContent = 'EFFECT';
-  controlsContainer.appendChild(effectLabel);
-  
-  const effectSelect = document.createElement('select');
-  effectSelect.classList.add('effect-select');
-  box.effectSelect = effectSelect; // Store reference for sync
-  
-  // Add effect options
-  Object.keys(nativeEffects).forEach(effectName => {
-    const option = document.createElement('option');
-    option.value = effectName;
-    option.textContent = effectName.charAt(0).toUpperCase() + effectName.slice(1);
-    effectSelect.appendChild(option);
-  });
-  
-  // Set initial value to 'none'
-  effectSelect.value = 'none';
-  
-  controlsContainer.appendChild(effectSelect);
-  
-  // Create parameter container for effect parameters
-  const paramLabel = document.createElement('div');
-  paramLabel.classList.add('control-label');
-  paramLabel.textContent = 'PARAMETERS';
-  paramLabel.style.display = 'none'; // Hide by default
-  controlsContainer.appendChild(paramLabel);
-  
-  const paramContainer = document.createElement('div');
-  paramContainer.classList.add('param-container');
-  paramContainer.style.display = 'none'; // Hide by default
-  controlsContainer.appendChild(paramContainer);
-  box.paramContainer = paramContainer; // Store reference for updating parameters
-  box.paramLabel = paramLabel; // Store reference to the label
-  
-  // Add mix slider (moved from earlier to be grouped with parameters)
-  const mixLabel = document.createElement('div');
-  mixLabel.classList.add('control-label');
-  mixLabel.textContent = 'DRY/WET';
-  mixLabel.style.display = 'none'; // Hide by default
-  controlsContainer.appendChild(mixLabel);
-  
-  const mixSlider = document.createElement('input');
-  mixSlider.type = 'range';
-  mixSlider.min = 0;
-  mixSlider.max = 100;
-  mixSlider.value = 0; // Start completely dry
-  mixSlider.classList.add('mix-control');
-  mixSlider.style.display = 'none'; // Hide by default
-  box.mixSlider = mixSlider; // Store reference for sync
-  controlsContainer.appendChild(mixSlider);
-  box.mixLabel = mixLabel; // Store reference to the label
-  
-  // Add volume label
-  const volumeLabel = document.createElement('div');
-  volumeLabel.classList.add('control-label');
-  volumeLabel.textContent = 'VOLUME';
-  controlsContainer.appendChild(volumeLabel);
-  
-  // Add volume slider
-  const volumeSlider = document.createElement('input');
-  volumeSlider.type = 'range';
-  volumeSlider.min = 0;
-  volumeSlider.max = 100;
-  volumeSlider.value = 100;
-  volumeSlider.classList.add('volume-control');
-  box.volumeSlider = volumeSlider; // Store reference for sync
-  controlsContainer.appendChild(volumeSlider);
-  
-  // Position all boxes on the left side initially - ensure these styles are applied
-  box.style.position = 'absolute';
-  box.style.left = '10px';
-  box.style.top = `${20 + index * 50}px`; // Closer together when collapsed
-  box.style.width = '120px';
-  box.style.height = '40px';
-  
-  // Add box to body instead of table
-  document.body.appendChild(box);
-  
-  // Add drag functionality with smooth updates
-  let isDragging = false;
-  let startX, startY, initialX, initialY;
-  let hasDragged = false; // New flag to track if a drag occurred
-  
-  // Create a debounced version of checkBoxPosition specifically for this box
-  const debouncedCheckPosition = debounce(() => {
-    const boxId = createdBoxes.indexOf(box);
-    checkBoxPosition(box, boxId);
-  }, 100);
-  
-  box.addEventListener('mousedown', (e) => {
-    eventHandlers.handleDragStart(box, index, e, updateBoxPosition);
-  });
-  
-  document.addEventListener('mousemove', (e) => {
-    eventHandlers.handleDragMove(box, index, e, debouncedCheckPosition);
-  });
-  
-  document.addEventListener('mouseup', () => {
-    eventHandlers.handleDragEnd(box, index, debouncedCheckPosition, audioManager, isSafari);
-  });
-  
-  // Add click handler to expand/collapse box
-  box.addEventListener('click', (e) => {
-    console.log('Click on box:', index + 1, 'hasDragged:', hasDragged, 'Current state:', {
-      isPlaying: box.isPlaying,
-      audioContextState: audioManager.getState(),
-      hasEffectNode: !!box.effectNode,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Don't expand if clicking on controls or if the event came from a slider
-    if (e.target === effectSelect || 
-        e.target === mixSlider || 
-        e.target === volumeSlider ||
-        e.target.closest('input[type="range"]')) {
-      console.log('Ignoring click on controls');
-      return;
-    }
-    
-    // If we dragged, don't toggle the box state
-    if (hasDragged) {
-      console.log('Ignoring click after drag');
-      hasDragged = false; // Reset the flag for next interaction
-      return;
-    }
-    
-    // Toggle expanded state
-    box.classList.toggle('expanded');
-    
-    // Show/hide controls container
-    const controlsContainer = box.querySelector('.controls-container');
-    controlsContainer.style.opacity = box.classList.contains('expanded') ? '1' : '0';
-    
-    // Adjust box size based on current effect
-    adjustBoxSize(effectSelect.value);
-  });
-  
-  // Add mousedown handler to sliders to prevent box click
-  mixSlider.addEventListener('mousedown', (e) => {
-    e.stopPropagation();
-  });
-  
-  volumeSlider.addEventListener('mousedown', (e) => {
-    e.stopPropagation();
-  });
-  
-  // Function to adjust box size based on effect parameters
-  function adjustBoxSize(effectName) {
-    // Create parameters for the selected effect
-    const paramCount = createParamSliders(box, effectName);
-    
-    // Base height for the expanded box (without parameters)
-    const baseHeight = 180; // Reduced from 220 to 180
-    
-    // Show or hide the parameter section based on whether there are parameters
-    if (paramCount > 0 && effectName !== 'none') {
-      box.paramLabel.style.display = 'block';
-      box.paramContainer.style.display = 'block';
-      box.mixLabel.style.display = 'block';
-      box.mixSlider.style.display = 'block';
-      
-      // Additional height per parameter - reduced for more compact display
-      const paramHeight = 60; // Reduced from 100 to 60px per parameter
-      
-      // Calculate new height based on number of parameters plus the mix control
-      const newHeight = baseHeight + ((paramCount + 1) * paramHeight);
-      
-      // Apply the height with a transition effect
-      box.style.transition = 'height 0.3s ease';
-      
-      if (box.classList.contains('expanded')) {
-        box.style.height = `${newHeight}px`;
-      } else {
-        box.style.height = '40px';
-      }
-    } else {
-      // Hide parameters section when no effect is selected or no parameters
-      box.paramLabel.style.display = 'none';
-      box.paramContainer.style.display = 'none';
-      box.mixLabel.style.display = effectName !== 'none' ? 'block' : 'none';
-      box.mixSlider.style.display = effectName !== 'none' ? 'block' : 'none';
-      
-      // Use base height without parameters
-      if (box.classList.contains('expanded')) {
-        // Add extra height if we have the mix control but no parameters
-        const mixHeight = effectName !== 'none' ? 60 : 0; // Reduced from 100 to 60
-        box.style.height = `${baseHeight + mixHeight}px`;
-      } else {
-        box.style.height = '40px';
-      }
-    }
-  }
-  
-  // Add effect selection handler
-  effectSelect.addEventListener('change', (e) => {
-    eventHandlers.handleEffectChange(box, state, nativeEffects, createParamSliders, activeBoxForDebug, adjustBoxSize, sendBoxUpdate.bind(box));
-  });
-  
-  // Mix control
-  mixSlider.addEventListener('input', (e) => {
-    eventHandlers.handleMixChange(box, state, sendBoxUpdate.bind(box));
-  });
-  
-  // Volume control
-  volumeSlider.addEventListener('input', (e) => {
-    eventHandlers.handleVolumeChange(box, state, sendBoxUpdate.bind(box));
-  });
-  
-  // Modify startAudio function to handle initialization
-  function startAudio() {
-    console.log('startAudio called, checking initialization - Current state:', {
-      isPlaying: state.isPlaying,
-      audioContextState: audioManager.getState(),
-      timestamp: new Date().toISOString()
-    });
-    
-    // If already playing, don't start again
-    if (state.isPlaying) {
-      console.log(`Box ${box.boxId + 1} is already playing, skipping start`);
-      return;
-    }
-
-    // Initialize audio context if needed
-    if (!audioManager.isReady()) {
-      audioManager.initialize().then(() => {
-        // Start actual playback after initialization
-        startAudioPlayback();
-      }).catch(e => {
-        console.warn('Failed to initialize audio context:', e);
-      });
-    } else if (isSafari && audioManager.getState() === 'suspended') {
-      console.log('Safari detected, attempting audio unlock');
-      audioManager.safariAudioUnlock()
-        .then(() => {
-          console.log('Safari unlock completed after drag');
-          return audioManager.resume();
-        })
-        .then(() => {
-          console.log('Audio context resumed after drag');
-          // Start actual playback after unlock
-          startAudioPlayback();
-        })
-        .catch(e => {
-          console.warn('Failed to unlock audio after drag:', e);
-        });
-    } else {
-      // Audio context is already initialized and running
-      startAudioPlayback();
-    }
-  }
-  
-  // Attach startAudio to box for external calling
-  box.startAudio = startAudio;
-
-  // Modify stopAudio to use state
-  function stopAudio() {
-    console.log(`Stopping audio for box ${box.boxId + 1}`);
-    
-    // Clear playing state immediately
-    state.isPlaying = false;
-    box.isPlaying = false;
-    
-    // Only try to fade out if we have an audio context and a gain node
-    if (audioManager.isReady() && state.gainNode) {
-      // Fade out
-      state.gainNode.gain.cancelScheduledValues(audioManager.getCurrentTime());
-      state.gainNode.gain.setValueAtTime(state.gainNode.gain.value, audioManager.getCurrentTime());
-      state.gainNode.gain.linearRampToValueAtTime(0, audioManager.getCurrentTime() + 0.5);
-
-      // Stop source after fade
-      setTimeout(() => {
-        state.cleanup();
-      }, 600);
-    } else {
-      // If no audio context or gain node, just stop the basic audio
-      const tempAudio = window.tempAudioElements[box.boxId];
-      if (tempAudio) {
-        tempAudio.pause();
-        tempAudio.currentTime = 0;
-      }
-    }
-  }
-  
-  // Attach stopAudio to box for external calling
-  box.stopAudio = stopAudio;
-
-  // Separate function for actual audio playback
-  function startAudioPlayback() {
-    console.log('Starting audio after initialization - Current state:', {
-      audioContextState: audioManager.getState(),
-      timestamp: new Date().toISOString()
-    });
-    
-    // Add a longer delay for Safari to ensure everything is properly initialized
-    const delayMs = isSafari ? 300 : 50;
-    
-    setTimeout(() => {
-      // Check if we have either basic audio or full audio buffer
-      const hasBasicAudio = window.tempAudioElements && window.tempAudioElements[box.boxId];
-      const hasFullAudio = audioBuffers[box.boxId];
-      
-      console.log(`Box ${box.boxId + 1} audio state before playback:`, {
-        hasBasicAudio,
-        hasFullAudio,
-        audioContextState: audioManager.getState(),
-        sourceNode: !!state.sourceNode,
-        timestamp: new Date().toISOString()
-      });
-      
-      if (!hasBasicAudio && !hasFullAudio) {
-        console.error(`No audio available for box ${box.boxId + 1}`);
-        box.style.border = '2px solid red';
-        box.style.backgroundColor = '#ffebee';
-        
-        // Add reload button if not already present
-        if (!box.querySelector('.reload-btn')) {
-          const reloadBtn = document.createElement('button');
-          reloadBtn.className = 'reload-btn';
-          reloadBtn.textContent = '↻';
-          reloadBtn.onclick = (e) => {
-            e.stopPropagation();
-            loadSingleAudioFile(audioFiles[box.boxId], box.boxId);
-          };
-          box.appendChild(reloadBtn);
-        }
-        return;
-      }
-      
-      // Remove error styling if we have audio
-      box.style.border = '';
-      const reloadBtn = box.querySelector('.reload-btn');
-      if (reloadBtn) box.removeChild(reloadBtn);
-      
-      // If we have full audio buffer, use Web Audio API
-      if (hasFullAudio) {
-        if (!state.sourceNode) {
-          try {
-            console.log(`Creating new source node for box ${box.boxId + 1} - Current state:`, {
-              audioContextState: audioManager.getState(),
-              timestamp: new Date().toISOString()
-            });
-            state.sourceNode = audioManager.createNode('BufferSource');
-            state.sourceNode.buffer = audioBuffers[box.boxId];
-            state.sourceNode.loop = true;
-
-            // Pitch control
-            state.sourceNode.playbackRate.value = 1.0;
-
-            // Connect source to gain
-            state.sourceNode.connect(state.gainNode);
-            
-            // Setup initial effect if one is selected and effects are ready
-            if (effectsReady && effectSelect.value !== 'none') {
-              console.log(`Setting up effect ${effectSelect.value} for box ${box.boxId + 1}`);
-              state.effectNode = cleanupEffect(state.effectNode, state.gainNode, state.dryNode);
-              state.setupAudioRouting();
-              state.effectNode = setupEffect(effectSelect.value, state.gainNode, state.wetNode, box);
-              const mixValue = mixSlider.value / 100;
-              state.applyMix(mixValue);
-            }
-
-            // Set the gain based on the current slider value
-            const volume = volumeSlider.value / 100;
-            console.log(`Setting volume to ${volume} for box ${box.boxId + 1} - Current state:`, {
-              audioContextState: audioManager.getState(),
-              timestamp: new Date().toISOString()
-            });
-            state.gainNode.gain.setValueAtTime(volume, audioManager.getCurrentTime());
-            
-            // Start playback
-            state.sourceNode.start(0);
-            
-            // Set playing state after successful playback start
-            state.isPlaying = true;
-            box.isPlaying = true;
-            
-            console.log(`Audio started for box ${box.boxId + 1} - Current state:`, {
-              isPlaying: state.isPlaying,
-              audioContextState: audioManager.getState(),
-              timestamp: new Date().toISOString()
-            });
-          } catch (e) {
-            console.error(`Error starting audio for box ${box.boxId + 1}:`, e);
-            state.isPlaying = false;
-            box.isPlaying = false;
-          }
-        }
-      } else if (hasBasicAudio) {
-        // Use basic audio if Web Audio API isn't available
-        const tempAudio = window.tempAudioElements[box.boxId];
-        if (tempAudio) {
-          tempAudio.currentTime = 0;
-          tempAudio.play().then(() => {
-            state.isPlaying = true;
-            box.isPlaying = true;
-            console.log(`Basic audio started for box ${box.boxId + 1} - Current state:`, {
-              isPlaying: state.isPlaying,
-              audioContextState: audioManager.getState(),
-              timestamp: new Date().toISOString()
-            });
-          }).catch(e => {
-            console.error(`Error starting basic audio for box ${box.boxId + 1}:`, e);
-            state.isPlaying = false;
-            box.isPlaying = false;
-          });
-        }
-      }
-    }, delayMs);
-  }
 }
 
 // Hide debug panel when clicking elsewhere
