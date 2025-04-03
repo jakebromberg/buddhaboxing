@@ -1,0 +1,649 @@
+import AudioContextManager from './audioContextManager.js';
+
+export class NativeEffect {
+  constructor(name, audioCtx) {
+    this.name = name;
+    this.audioCtx = audioCtx;
+    this.nodes = {};
+    this.params = {};
+  }
+
+  create() {
+    throw new Error('create() must be implemented by subclass');
+  }
+
+  getParams() {
+    return this.params;
+  }
+
+  cleanup() {
+    // Disconnect all nodes
+    Object.values(this.nodes).forEach(node => {
+      if (node.disconnect) {
+        node.disconnect();
+      }
+    });
+    this.nodes = {};
+  }
+}
+
+export class DistortionEffect extends NativeEffect {
+  constructor(audioCtx) {
+    super('distortion', audioCtx);
+    this.params = {
+      amount: { 
+        min: 0, 
+        max: 100, 
+        default: 50, 
+        callback: (value) => this.updateDistortion(value)
+      }
+    };
+  }
+
+  create() {
+    const distortion = this.audioCtx.createWaveShaper();
+    this.updateDistortion(this.params.amount.default);
+    distortion.oversample = '4x';
+    
+    this.nodes = {
+      input: distortion,
+      output: distortion,
+      _distortion: distortion
+    };
+    
+    return this.nodes;
+  }
+
+  updateDistortion(value) {
+    const intensity = value / 10; // Scale from 0-100 to 0-10
+    const curve = new Float32Array(44100);
+    const deg = Math.PI / 180;
+    
+    for (let i = 0; i < 44100; i++) {
+      const x = i * 2 / 44100 - 1;
+      curve[i] = (3 + intensity) * x * 20 * deg / (Math.PI + intensity * Math.abs(x));
+    }
+    
+    this.nodes._distortion.curve = curve;
+  }
+}
+
+export class DelayEffect extends NativeEffect {
+  constructor(audioCtx) {
+    super('delay', audioCtx);
+    this.params = {
+      time: { 
+        min: 0, 
+        max: 1.0, 
+        default: 0.3, 
+        callback: (value) => this.updateDelayTime(value)
+      },
+      feedback: { 
+        min: 0, 
+        max: 0.9, 
+        default: 0.4, 
+        callback: (value) => this.updateFeedback(value)
+      }
+    };
+  }
+
+  create() {
+    const delay = this.audioCtx.createDelay();
+    const feedback = this.audioCtx.createGain();
+    
+    delay.delayTime.value = this.params.time.default;
+    feedback.gain.value = this.params.feedback.default;
+    
+    delay.connect(feedback);
+    feedback.connect(delay);
+    
+    this.nodes = {
+      input: delay,
+      output: delay,
+      _delay: delay,
+      _feedback: feedback
+    };
+    
+    return this.nodes;
+  }
+
+  updateDelayTime(value) {
+    this.nodes._delay.delayTime.setValueAtTime(value, this.audioCtx.currentTime);
+  }
+
+  updateFeedback(value) {
+    this.nodes._feedback.gain.setValueAtTime(value, this.audioCtx.currentTime);
+  }
+}
+
+export class ReverbEffect extends NativeEffect {
+  constructor(audioCtx) {
+    super('reverb', audioCtx);
+    this.params = {
+      decay: { 
+        min: 0.1, 
+        max: 5.0, 
+        default: 2.0, 
+        callback: (value) => this.updateDecay(value)
+      }
+    };
+  }
+
+  create() {
+    const convolver = this.audioCtx.createConvolver();
+    this.updateDecay(this.params.decay.default);
+    
+    this.nodes = {
+      input: convolver,
+      output: convolver,
+      _convolver: convolver
+    };
+    
+    return this.nodes;
+  }
+
+  updateDecay(value) {
+    const attack = 0;
+    const decay = value;
+    const sampleRate = this.audioCtx.sampleRate;
+    const length = sampleRate * decay;
+    const impulse = this.audioCtx.createBuffer(2, length, sampleRate);
+    const impulseL = impulse.getChannelData(0);
+    const impulseR = impulse.getChannelData(1);
+    
+    for(let i = 0; i < length; i++) {
+      const n = i / length;
+      impulseL[i] = (Math.random() * 2 - 1) * Math.pow(1 - n, decay);
+      impulseR[i] = (Math.random() * 2 - 1) * Math.pow(1 - n, decay);
+    }
+    
+    this.nodes._convolver.buffer = impulse;
+    this.nodes._convolver._decay = decay;
+  }
+}
+
+export class ConvolverReverbEffect extends NativeEffect {
+  constructor(audioCtx) {
+    super('convolver-reverb', audioCtx);
+    this.params = {
+      mix: { 
+        min: 0, 
+        max: 1, 
+        default: 0.5, 
+        callback: (value) => this.updateMix(value)
+      },
+      decay: { 
+        min: 0.1, 
+        max: 5.0, 
+        default: 2.0, 
+        callback: (value) => this.updateDecay(value)
+      }
+    };
+  }
+
+  create() {
+    const convolver = this.audioCtx.createConvolver();
+    const wetGain = this.audioCtx.createGain();
+    const dryGain = this.audioCtx.createGain();
+    const input = this.audioCtx.createGain();
+    const output = this.audioCtx.createGain();
+    
+    this.updateDecay(this.params.decay.default);
+    this.updateMix(this.params.mix.default);
+    
+    // Set up the routing
+    input.connect(convolver);
+    input.connect(dryGain);
+    convolver.connect(wetGain);
+    wetGain.connect(output);
+    dryGain.connect(output);
+    
+    this.nodes = {
+      input: input,
+      output: output,
+      _convolver: convolver,
+      _wetGain: wetGain,
+      _dryGain: dryGain
+    };
+    
+    return this.nodes;
+  }
+
+  updateMix(value) {
+    this.nodes._wetGain.gain.setValueAtTime(value, this.audioCtx.currentTime);
+    this.nodes._dryGain.gain.setValueAtTime(1 - value, this.audioCtx.currentTime);
+  }
+
+  updateDecay(value) {
+    const sampleRate = this.audioCtx.sampleRate;
+    const length = sampleRate * value;
+    const impulse = this.audioCtx.createBuffer(2, length, sampleRate);
+    const impulseL = impulse.getChannelData(0);
+    const impulseR = impulse.getChannelData(1);
+    
+    for (let i = 0; i < length; i++) {
+      const n = i / length;
+      const decay = Math.exp(-n * 3);
+      const random = (Math.random() * 2 - 1) * 0.1;
+      const earlyReflections = Math.exp(-n * 20) * 0.5;
+      
+      impulseL[i] = (decay + random + earlyReflections) * (1 - n);
+      impulseR[i] = (decay + random + earlyReflections) * (1 - n);
+    }
+    
+    this.nodes._convolver.buffer = impulse;
+  }
+}
+
+export class FlangerEffect extends NativeEffect {
+  constructor(audioCtx) {
+    super('flanger', audioCtx);
+    this.params = {
+      rate: { 
+        min: 0.05, 
+        max: 5, 
+        default: 0.5, 
+        callback: (value) => this.updateRate(value)
+      },
+      depth: { 
+        min: 0.0001, 
+        max: 0.01, 
+        default: 0.002, 
+        callback: (value) => this.updateDepth(value)
+      },
+      feedback: { 
+        min: 0, 
+        max: 0.9, 
+        default: 0.6, 
+        callback: (value) => this.updateFeedback(value)
+      },
+      intensity: { 
+        min: 0, 
+        max: 1, 
+        default: 0.7, 
+        callback: (value) => this.updateIntensity(value)
+      }
+    };
+  }
+
+  create() {
+    const delay = this.audioCtx.createDelay();
+    const lfo = this.audioCtx.createOscillator();
+    const lfoGain = this.audioCtx.createGain();
+    const feedback = this.audioCtx.createGain();
+    const flangerIntensity = this.audioCtx.createGain();
+    const output = this.audioCtx.createGain();
+    
+    // Set initial values
+    delay.delayTime.value = 0.005;
+    lfo.type = 'sine';
+    lfo.frequency.value = this.params.rate.default;
+    lfoGain.gain.value = this.params.depth.default;
+    feedback.gain.value = this.params.feedback.default;
+    flangerIntensity.gain.value = this.params.intensity.default;
+    
+    // Connect everything
+    lfo.connect(lfoGain);
+    lfoGain.connect(delay.delayTime);
+    delay.connect(feedback);
+    feedback.connect(delay);
+    delay.connect(flangerIntensity);
+    flangerIntensity.connect(output);
+    
+    // Start LFO
+    lfo.start(0);
+    
+    this.nodes = {
+      input: delay,
+      output: output,
+      _delay: delay,
+      _lfo: lfo,
+      _feedback: feedback,
+      _flangerIntensity: flangerIntensity
+    };
+    
+    return this.nodes;
+  }
+
+  updateRate(value) {
+    this.nodes._lfo.frequency.setValueAtTime(value, this.audioCtx.currentTime);
+  }
+
+  updateDepth(value) {
+    this.nodes._lfo.frequency.cancelScheduledValues(this.audioCtx.currentTime);
+    this.nodes._lfo.frequency.setValueAtTime(this.nodes._lfo.frequency.value, this.audioCtx.currentTime);
+    this.nodes._lfo.connect(this.nodes._delay.delayTime);
+  }
+
+  updateFeedback(value) {
+    this.nodes._feedback.gain.setValueAtTime(value, this.audioCtx.currentTime);
+  }
+
+  updateIntensity(value) {
+    this.nodes._flangerIntensity.gain.setValueAtTime(value, this.audioCtx.currentTime);
+  }
+}
+
+export class StereoChorusEffect extends NativeEffect {
+  constructor(audioCtx) {
+    super('stereo-chorus', audioCtx);
+    this.params = {
+      rate: { 
+        min: 0.05, 
+        max: 2, 
+        default: 0.33, 
+        callback: (value) => this.updateRate(value)
+      },
+      depth: { 
+        min: 0.001, 
+        max: 0.02, 
+        default: 0.005, 
+        callback: (value) => this.updateDepth(value)
+      },
+      mix: { 
+        min: 0, 
+        max: 1, 
+        default: 0.5, 
+        callback: (value) => this.updateMix(value)
+      }
+    };
+  }
+
+  create() {
+    const delayLeft = this.audioCtx.createDelay();
+    const delayRight = this.audioCtx.createDelay();
+    const lfoLeft = this.audioCtx.createOscillator();
+    const lfoRight = this.audioCtx.createOscillator();
+    const lfoGainLeft = this.audioCtx.createGain();
+    const lfoGainRight = this.audioCtx.createGain();
+    const splitter = this.audioCtx.createChannelSplitter(2);
+    const merger = this.audioCtx.createChannelMerger(2);
+    const chorusGain = this.audioCtx.createGain();
+    const input = this.audioCtx.createGain();
+    const output = this.audioCtx.createGain();
+    
+    // Set initial values
+    delayLeft.delayTime.value = 0.025;
+    delayRight.delayTime.value = 0.027;
+    lfoLeft.type = 'sine';
+    lfoRight.type = 'sine';
+    lfoLeft.frequency.value = this.params.rate.default;
+    lfoRight.frequency.value = this.params.rate.default * 1.15;
+    lfoGainLeft.gain.value = this.params.depth.default;
+    lfoGainRight.gain.value = this.params.depth.default * 1.2;
+    chorusGain.gain.value = this.params.mix.default;
+    
+    // Connect everything
+    lfoLeft.connect(lfoGainLeft);
+    lfoRight.connect(lfoGainRight);
+    lfoGainLeft.connect(delayLeft.delayTime);
+    lfoGainRight.connect(delayRight.delayTime);
+    
+    input.connect(splitter);
+    input.connect(output);
+    splitter.connect(delayLeft, 0);
+    splitter.connect(delayRight, 1);
+    delayLeft.connect(merger, 0, 0);
+    delayRight.connect(merger, 0, 1);
+    merger.connect(chorusGain);
+    chorusGain.connect(output);
+    
+    // Start LFOs
+    lfoLeft.start(0);
+    lfoRight.start(0);
+    
+    this.nodes = {
+      input: input,
+      output: output,
+      _delayLeft: delayLeft,
+      _delayRight: delayRight,
+      _lfoLeft: lfoLeft,
+      _lfoRight: lfoRight,
+      _chorusGain: chorusGain
+    };
+    
+    return this.nodes;
+  }
+
+  updateRate(value) {
+    this.nodes._lfoLeft.frequency.setValueAtTime(value, this.audioCtx.currentTime);
+    this.nodes._lfoRight.frequency.setValueAtTime(value * 1.15, this.audioCtx.currentTime);
+  }
+
+  updateDepth(value) {
+    const lfoGainLeft = this.nodes._lfoLeft.connect(this.nodes._delayLeft.delayTime);
+    const lfoGainRight = this.nodes._lfoRight.connect(this.nodes._delayRight.delayTime);
+    if (lfoGainLeft) lfoGainLeft.gain.setValueAtTime(value, this.audioCtx.currentTime);
+    if (lfoGainRight) lfoGainRight.gain.setValueAtTime(value * 1.2, this.audioCtx.currentTime);
+  }
+
+  updateMix(value) {
+    this.nodes._chorusGain.gain.setValueAtTime(value, this.audioCtx.currentTime);
+  }
+}
+
+export class BitcrusherEffect extends NativeEffect {
+  constructor(audioCtx) {
+    super('bitcrusher', audioCtx);
+    this.params = {
+      bits: { 
+        min: 1, 
+        max: 16, 
+        default: 8, 
+        callback: (value) => this.updateBits(value)
+      },
+      frequency: { 
+        min: 0.01, 
+        max: 1, 
+        default: 0.15, 
+        callback: (value) => this.updateFrequency(value)
+      }
+    };
+  }
+
+  create() {
+    try {
+      const bufferSize = 4096;
+      const crusher = this.audioCtx.createScriptProcessor(bufferSize, 2, 2);
+      
+      // Set default values
+      crusher.bits = this.params.bits.default;
+      crusher.normFreq = this.params.frequency.default;
+      crusher.step = Math.pow(0.5, crusher.bits);
+      crusher._lastValues = [0, 0];
+      
+      // The actual bitcrushing logic
+      crusher.onaudioprocess = (e) => {
+        const inputL = e.inputBuffer.getChannelData(0);
+        const inputR = e.inputBuffer.getChannelData(1);
+        const outputL = e.outputBuffer.getChannelData(0);
+        const outputR = e.outputBuffer.getChannelData(1);
+        
+        const step = Math.pow(0.5, crusher.bits);
+        const phaseIncr = crusher.normFreq;
+        
+        for (let i = 0; i < bufferSize; i++) {
+          if ((i % Math.floor(1/phaseIncr)) === 0) {
+            crusher._lastValues[0] = Math.round(inputL[i] / step) * step;
+            crusher._lastValues[1] = Math.round(inputR[i] / step) * step;
+          }
+          
+          outputL[i] = crusher._lastValues[0];
+          outputR[i] = crusher._lastValues[1];
+        }
+      };
+      
+      this.nodes = {
+        input: crusher,
+        output: crusher,
+        _crusher: crusher
+      };
+      
+      return this.nodes;
+    } catch (error) {
+      console.error("Failed to create bitcrusher effect:", error);
+      // Fallback for Safari - use a simple distortion instead
+      const distortion = this.audioCtx.createWaveShaper();
+      const curve = new Float32Array(44100);
+      for (let i = 0; i < 44100; i++) {
+        const x = i * 2 / 44100 - 1;
+        curve[i] = Math.sign(x) * Math.pow(Math.abs(x), 0.5);
+      }
+      distortion.curve = curve;
+      distortion.oversample = '4x';
+      
+      // Add dummy properties to mimic the bitcrusher
+      distortion.bits = this.params.bits.default;
+      distortion.normFreq = this.params.frequency.default;
+      
+      this.nodes = {
+        input: distortion,
+        output: distortion,
+        _crusher: distortion
+      };
+      
+      return this.nodes;
+    }
+  }
+
+  updateBits(value) {
+    this.nodes._crusher.bits = value;
+    this.nodes._crusher.step = Math.pow(0.5, value);
+  }
+
+  updateFrequency(value) {
+    this.nodes._crusher.normFreq = value;
+  }
+}
+
+export class RingModulatorEffect extends NativeEffect {
+  constructor(audioCtx) {
+    super('ring-modulator', audioCtx);
+    this.params = {
+      frequency: { 
+        min: 50, 
+        max: 5000, 
+        default: 440, 
+        callback: (value) => this.updateFrequency(value)
+      },
+      depth: { 
+        min: 0, 
+        max: 1, 
+        default: 1.0, 
+        callback: (value) => this.updateDepth(value)
+      }
+    };
+  }
+
+  create() {
+    try {
+      const osc = this.audioCtx.createOscillator();
+      const modulationGain = this.audioCtx.createGain();
+      const ringMod = this.audioCtx.createGain();
+      const bufferSize = 4096;
+      const modulator = this.audioCtx.createScriptProcessor(bufferSize, 2, 2);
+      
+      // Set initial values
+      osc.type = 'sine';
+      osc.frequency.value = this.params.frequency.default;
+      modulationGain.gain.value = 1.0;
+      modulator._ringFreq = this.params.frequency.default;
+      modulator._depth = this.params.depth.default;
+      
+      // Connect oscillator to gain
+      osc.connect(modulationGain);
+      osc.start(0);
+      
+      // The ring modulation logic
+      modulator.onaudioprocess = (e) => {
+        const inputL = e.inputBuffer.getChannelData(0);
+        const inputR = e.inputBuffer.getChannelData(1);
+        const outputL = e.outputBuffer.getChannelData(0);
+        const outputR = e.outputBuffer.getChannelData(1);
+        
+        for (let i = 0; i < bufferSize; i++) {
+          const mod = Math.sin(2 * Math.PI * modulator._ringFreq * i / this.audioCtx.sampleRate);
+          const modDepth = modulator._depth;
+          const origDepth = 1 - modDepth;
+          
+          outputL[i] = (inputL[i] * mod * modDepth) + (inputL[i] * origDepth);
+          outputR[i] = (inputR[i] * mod * modDepth) + (inputR[i] * origDepth);
+        }
+      };
+      
+      this.nodes = {
+        input: modulator,
+        output: modulator,
+        _modulator: modulator
+      };
+      
+      return this.nodes;
+    } catch (error) {
+      console.error("Failed to create ring-modulator effect:", error);
+      // Fallback for Safari - use a simpler approach
+      const osc = this.audioCtx.createOscillator();
+      const gain = this.audioCtx.createGain();
+      const ringMod = this.audioCtx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.value = this.params.frequency.default;
+      gain.gain.value = 0.5;
+      
+      osc.connect(gain);
+      osc.start(0);
+      
+      this.nodes = {
+        input: ringMod,
+        output: ringMod,
+        _modulator: {
+          _ringFreq: this.params.frequency.default,
+          _depth: this.params.depth.default
+        }
+      };
+      
+      return this.nodes;
+    }
+  }
+
+  updateFrequency(value) {
+    this.nodes._modulator._ringFreq = value;
+  }
+
+  updateDepth(value) {
+    this.nodes._modulator._depth = value;
+  }
+}
+
+// Export a factory function to create effects
+export function createEffect(effectName, audioCtx) {
+  const effectClasses = {
+    'distortion': DistortionEffect,
+    'delay': DelayEffect,
+    'reverb': ReverbEffect,
+    'convolver-reverb': ConvolverReverbEffect,
+    'flanger': FlangerEffect,
+    'stereo-chorus': StereoChorusEffect,
+    'bitcrusher': BitcrusherEffect,
+    'ring-modulator': RingModulatorEffect
+  };
+
+  const EffectClass = effectClasses[effectName];
+  if (!EffectClass) {
+    throw new Error(`Unknown effect: ${effectName}`);
+  }
+
+  return new EffectClass(audioCtx);
+}
+
+// Export the nativeEffects object
+export const nativeEffects = {
+  'none': null,
+  'distortion': DistortionEffect,
+  'delay': DelayEffect,
+  'reverb': ReverbEffect,
+  'convolver-reverb': ConvolverReverbEffect,
+  'flanger': FlangerEffect,
+  'stereo-chorus': StereoChorusEffect,
+  'bitcrusher': BitcrusherEffect,
+  'ring-modulator': RingModulatorEffect
+}; 
