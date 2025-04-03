@@ -441,26 +441,24 @@ export class Box {
     }
   }
 
-  startAudio() {
+  async startAudio() {
     if (this.isPlaying) return;
 
     if (!this.audioManager.isReady()) {
-      this.audioManager.initialize().then(() => {
+      try {
+        await this.audioManager.initialize();
         this.startAudioPlayback();
-      }).catch(e => {
+      } catch (e) {
         console.warn('Failed to initialize audio context:', e);
-      });
+      }
     } else if (this.isSafari && this.audioManager.getState() === 'suspended') {
-      this.audioManager.safariAudioUnlock()
-        .then(() => {
-          return this.audioManager.resume();
-        })
-        .then(() => {
-          this.startAudioPlayback();
-        })
-        .catch(e => {
-          console.warn('Failed to unlock audio after drag:', e);
-        });
+      try {
+        await this.audioManager.safariAudioUnlock();
+        await this.audioManager.resume();
+        this.startAudioPlayback();
+      } catch (e) {
+        console.warn('Failed to unlock audio after drag:', e);
+      }
     } else {
       this.startAudioPlayback();
     }
@@ -487,10 +485,10 @@ export class Box {
     }
   }
 
-  startAudioPlayback() {
+  async startAudioPlayback() {
     const delayMs = this.isSafari ? 300 : 50;
     
-    setTimeout(() => {
+    setTimeout(async () => {
       const hasBasicAudio = window.tempAudioElements && window.tempAudioElements[this.index];
       const hasFullAudio = window.audioBuffers && window.audioBuffers[this.index];
       
@@ -549,61 +547,57 @@ export class Box {
         const tempAudio = window.tempAudioElements[this.index];
         if (tempAudio) {
           tempAudio.currentTime = 0;
-          tempAudio.play().then(() => {
+          try {
+            await tempAudio.play();
             this.isPlaying = true;
             this.element.isPlaying = true;
-          }).catch(e => {
+          } catch (e) {
             console.error(`Error starting basic audio for box ${this.index + 1}:`, e);
             this.isPlaying = false;
             this.element.isPlaying = false;
-          });
+          }
         }
       }
     }, delayMs);
   }
 
-  loadSingleAudioFile(url, index) {
-    return new Promise((resolve, reject) => {
-      fetch(`/loops/${url}`)
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          return response.arrayBuffer();
-        })
-        .then(arrayBuffer => {
-          // Create a temporary audio element for immediate playback
-          const tempAudio = new Audio();
-          tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
-          
-          window.tempAudioElements = window.tempAudioElements || {};
-          window.tempAudioElements[index] = tempAudio;
-          
-          window.audioLoadStatus[index] = 'basic-ready';
-          
-          // Decode the array buffer into an AudioBuffer
-          return this.audioManager.decodeAudioData(arrayBuffer)
-            .then(audioBuffer => {
-              window.audioBuffers = window.audioBuffers || {};
-              window.audioBuffers[index] = audioBuffer;
-              
-              const box = this.element;
-              if (this.isBoxInsideTable(box)) {
-                tempAudio.loop = true;
-                tempAudio.volume = box.volumeSlider ? box.volumeSlider.value / 100 : 1;
-                tempAudio.play().catch(e => {
-                  console.warn(`Could not start immediate playback for box ${index + 1}:`, e);
-                });
-              }
-              
-              resolve();
-            });
-        })
-        .catch(error => {
-          console.error(`Error loading audio file ${url}:`, error);
-          window.audioLoadStatus[index] = 'error';
-          reject(error);
-        });
-    });
+  async loadSingleAudioFile(url, index) {
+    try {
+      const response = await fetch(`/loops/${url}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      
+      // Create a temporary audio element for immediate playback
+      const tempAudio = new Audio();
+      tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
+      
+      window.tempAudioElements = window.tempAudioElements || {};
+      window.tempAudioElements[index] = tempAudio;
+      
+      window.audioLoadStatus[index] = 'basic-ready';
+      
+      // Decode the array buffer into an AudioBuffer
+      const audioBuffer = await this.audioManager.decodeAudioData(arrayBuffer);
+      window.audioBuffers = window.audioBuffers || {};
+      window.audioBuffers[index] = audioBuffer;
+      
+      const box = this.element;
+      if (this.isBoxInsideTable(box)) {
+        tempAudio.loop = true;
+        tempAudio.volume = box.volumeSlider ? box.volumeSlider.value / 100 : 1;
+        try {
+          await tempAudio.play();
+        } catch (e) {
+          console.warn(`Could not start immediate playback for box ${index + 1}:`, e);
+        }
+      }
+    } catch (error) {
+      console.error(`Error loading audio file ${url}:`, error);
+      window.audioLoadStatus[index] = 'error';
+      throw error;
+    }
   }
 } 

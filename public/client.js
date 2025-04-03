@@ -90,7 +90,7 @@ const eventHandlers = {
     box.style.top = `${newY}px`;
   },
 
-  handleDragEnd: (box, index, debouncedCheckPosition, audioManager, isSafari) => {
+  handleDragEnd: async (box, index, debouncedCheckPosition, audioManager, isSafari) => {
     if (box.isDragging) {
       console.log('Mouse up on box:', index + 1, 'hasDragged:', box.hasDragged);
       box.isDragging = false;
@@ -115,30 +115,28 @@ const eventHandlers = {
           console.log('Box dragged into table, initializing audio');
           // Initialize audio context if needed
           if (!audioManager.isReady()) {
-            audioManager.initialize().then(() => {
+            try {
+              await audioManager.initialize();
               if (box.startAudio) {
                 box.startAudio();
               }
-            }).catch(e => {
+            } catch (e) {
               console.warn('Failed to initialize audio context:', e);
-            });
+            }
           } else if (isSafari && audioManager.getState() === 'suspended') {
             console.log('Safari detected, attempting audio unlock');
-            audioManager.safariAudioUnlock()
-              .then(() => {
-                console.log('Safari unlock completed after drag');
-                return audioManager.resume();
-              })
-              .then(() => {
-                console.log('Audio context resumed after drag');
-                // Start audio playback
-                if (box.startAudio) {
-                  box.startAudio();
-                }
-              })
-              .catch(e => {
-                console.warn('Failed to unlock audio after drag:', e);
-              });
+            try {
+              await audioManager.safariAudioUnlock();
+              console.log('Safari unlock completed after drag');
+              await audioManager.resume();
+              console.log('Audio context resumed after drag');
+              // Start audio playback
+              if (box.startAudio) {
+                box.startAudio();
+              }
+            } catch (e) {
+              console.warn('Failed to unlock audio after drag:', e);
+            }
           } else {
             // Audio context is already initialized and running
             if (box.startAudio) {
@@ -438,47 +436,59 @@ boxesCreated = true;
 setTimeout(loadAudioFiles, 100);
 
 // Function to load audio files
-function loadAudioFiles() {
-  console.log("Starting audio file loading process...");
-  
-  // Initialize load status tracking
-  window.audioLoadStatus = Array(audioFiles.length).fill('pending');
-  
-  // First, check which files exist
-  const checkPromises = audioFiles.map((url, index) => {
-    return fetch(`/loops/${url}`, { method: 'HEAD' })
-      .then(() => {
-        window.audioLoadStatus[index] = 'found';
-        return { url, index, exists: true };
-      })
-      .catch(() => {
-        window.audioLoadStatus[index] = 'not-found';
-        return { url, index, exists: false };
-      });
-  });
-
-  Promise.all(checkPromises)
-    .then(results => {
-      // Filter to only load files that exist
-      const filesToLoad = results.filter(r => r.exists);
-      
-      // Load files in parallel with a limit
-      const loadPromises = filesToLoad.map(({ url, index }) => {
-        return boxes[index].loadSingleAudioFile(url, index);
-      });
-
-      return Promise.allSettled(loadPromises)
-        .then((results) => {
-          // Count successful loads
-          const successfulLoads = results.filter(r => r.status === 'fulfilled').length;
-          console.log(`Successfully loaded ${successfulLoads} audio files`);
-          console.log('Audio load status:', window.audioLoadStatus);
-        });
-    })
-    .catch(error => {
-      console.error('Error during audio loading:', error);
-      showAudioLoadingErrorMessage();
+async function loadAudioFiles() {
+  try {
+    const response = await fetch('/api/audio-files');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const audioFiles = await response.json();
+    
+    // Initialize audio load status
+    window.audioLoadStatus = {};
+    window.audioBuffers = {};
+    window.tempAudioElements = {};
+    
+    // Load each audio file
+    const loadPromises = audioFiles.map(async (url, index) => {
+      try {
+        const response = await fetch(`/loops/${url}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        
+        // Create a temporary audio element for immediate playback
+        const tempAudio = new Audio();
+        tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
+        
+        window.tempAudioElements[index] = tempAudio;
+        window.audioLoadStatus[index] = 'basic-ready';
+        
+        // Decode the array buffer into an AudioBuffer
+        const audioBuffer = await audioManager.decodeAudioData(arrayBuffer);
+        window.audioBuffers[index] = audioBuffer;
+        
+        return { index, success: true };
+      } catch (error) {
+        console.error(`Error loading audio file ${url}:`, error);
+        window.audioLoadStatus[index] = 'error';
+        return { index, success: false, error };
+      }
     });
+    
+    const results = await Promise.all(loadPromises);
+    const failedLoads = results.filter(r => !r.success);
+    
+    if (failedLoads.length > 0) {
+      console.warn('Some audio files failed to load:', failedLoads);
+    }
+    
+    return results;
+  } catch (error) {
+    console.error('Error fetching audio files:', error);
+    throw error;
+  }
 }
 
 // Create session display
