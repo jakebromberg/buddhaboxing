@@ -31,7 +31,7 @@
       height: 40px;
       border-radius: 10px;
       cursor: move;
-      padding: 15px; /* Increased padding */
+      padding: 15px;
       box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
       display: flex;
       flex-direction: column;
@@ -42,8 +42,8 @@
     }
     
     .box.expanded {
-      width: 220px; /* Increased width for better display of controls */
-      height: 180px; /* This will be dynamically adjusted in JS */
+      width: 220px;
+      height: 180px;
       z-index: 10;
     }
     
@@ -51,7 +51,7 @@
       font-size: 16px;
       font-weight: bold;
       text-align: center;
-      margin-bottom: 15px; /* Increased margin */
+      margin-bottom: 15px;
       user-select: none;
       -webkit-user-select: none;
       -moz-user-select: none;
@@ -59,9 +59,9 @@
     }
     
     .control-label {
-      font-size: 12px; /* Increased font size */
-      margin-top: 12px; /* Increased margin */
-      margin-bottom: 4px; /* Increased margin */
+      font-size: 12px;
+      margin-top: 12px;
+      margin-bottom: 4px;
       font-weight: bold;
       color: rgba(255, 255, 255, 0.8);
       text-transform: uppercase;
@@ -70,31 +70,27 @@
     input[type="range"], select {
       width: 100%;
       margin: 0;
-      height: 24px; /* Increased slider height */
-    }
-    
-    #debug-panel {
-      display: none; /* Hide the debug panel since we've integrated its functionality */
+      height: 24px;
     }
     
     .param-slider {
-      margin-bottom: 20px; /* Increased margin for better separation */
+      margin-bottom: 20px;
       background-color: rgba(0, 0, 0, 0.2);
-      padding: 12px; /* Increased padding */
+      padding: 12px;
       border-radius: 8px;
     }
     
     .param-slider label {
       display: block;
-      margin-bottom: 8px; /* Increased margin */
-      font-size: 13px; /* Larger font */
+      margin-bottom: 8px;
+      font-size: 13px;
       color: rgba(255, 255, 255, 0.9);
       text-transform: capitalize;
     }
     
     .param-slider .value {
       float: right;
-      font-size: 12px; /* Slightly larger value display */
+      font-size: 12px;
       color: #aaa;
       background-color: rgba(0, 0, 0, 0.3);
       padding: 2px 5px;
@@ -102,18 +98,12 @@
     }
     
     .param-container {
-      margin-top: 12px; /* Increased margin */
+      margin-top: 12px;
     }
   </style>
 </head>
 <body>
   <div id="table"></div>
-  
-  <div id="debug-panel">
-    <div class="close-btn">×</div>
-    <div id="debug-title">Effect Parameters</div>
-    <div id="param-container"></div>
-  </div>
 
   <!-- Scripts -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"></script>
@@ -121,7 +111,6 @@
   <script type="module" src="client.js"></script>
   <script>
     // Hot reload support
-    // Use the existing socket connection from client.js
     if (typeof socket !== 'undefined') {
       socket.on('reload', () => {
         window.location.reload();

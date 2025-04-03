@@ -323,24 +323,46 @@ export class Box {
   handleEffectChange(e) {
     const effectName = this.effectSelect.value;
     
-    this.state.cleanupEffect();
-    this.state.setupEffect(effectName, { [effectName]: (audioCtx) => createEffect(effectName, audioCtx) }, this.createParamSliders.bind(this), this.element);
-    
-    if (effectName !== 'none') {
-      this.element.classList.add('expanded');
-      const controlsContainer = this.element.querySelector('.controls-container');
-      controlsContainer.style.opacity = '1';
+    try {
+      this.state.cleanupEffect();
+      this.state.setupEffect(effectName, { [effectName]: (audioCtx) => createEffect(effectName, audioCtx) }, this.createParamSliders.bind(this), this.element);
       
-      this.adjustBoxSize(effectName);
-      
-      if (this.paramContainer) {
-        this.paramContainer.style.display = 'block';
-        this.paramLabel.style.display = 'block';
+      if (effectName !== 'none') {
+        this.element.classList.add('expanded');
+        const controlsContainer = this.element.querySelector('.controls-container');
+        controlsContainer.style.opacity = '1';
+        
+        this.adjustBoxSize(effectName);
+        
+        if (this.paramContainer) {
+          this.paramContainer.style.display = 'block';
+          this.paramLabel.style.display = 'block';
+        }
+        if (this.mixLabel) {
+          this.mixLabel.style.display = 'block';
+          this.mixSlider.style.display = 'block';
+        }
+      } else {
+        // Hide controls when 'none' is selected
+        this.element.classList.remove('expanded');
+        const controlsContainer = this.element.querySelector('.controls-container');
+        controlsContainer.style.opacity = '0';
+        
+        if (this.paramContainer) {
+          this.paramContainer.style.display = 'none';
+          this.paramLabel.style.display = 'none';
+        }
+        if (this.mixLabel) {
+          this.mixLabel.style.display = 'none';
+          this.mixSlider.style.display = 'none';
+        }
+        this.element.style.height = '40px';
       }
-      if (this.mixLabel) {
-        this.mixLabel.style.display = 'block';
-        this.mixSlider.style.display = 'block';
-      }
+    } catch (error) {
+      console.error(`Failed to create effect ${effectName}:`, error);
+      // Reset to no effect on error
+      this.effectSelect.value = 'none';
+      this.element.classList.remove('expanded');
     }
   }
 
@@ -596,16 +618,9 @@ export class Box {
       console.log(`Audio buffer not available for box ${this.index + 1}, waiting for it to load...`);
       try {
         // Wait for the audio buffer to be loaded
-        await new Promise((resolve, reject) => {
-          const checkBuffer = () => {
-            if (window.audioBuffers && window.audioBuffers[this.index]) {
-              resolve();
-            } else {
-              setTimeout(checkBuffer, 100);
-            }
-          };
-          checkBuffer();
-        });
+        while (!window.audioBuffers || !window.audioBuffers[this.index]) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
         console.log(`Audio buffer loaded for box ${this.index + 1}`);
       } catch (error) {
         console.warn(`Error waiting for audio buffer: ${error}`);

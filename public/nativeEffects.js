@@ -697,28 +697,7 @@ export class RingModulatorEffect extends NativeEffect {
   }
 }
 
-// Export a factory function to create effects
-export function createEffect(effectName, audioCtx) {
-  const effectClasses = {
-    'distortion': DistortionEffect,
-    'delay': DelayEffect,
-    'reverb': ReverbEffect,
-    'convolver-reverb': ConvolverReverbEffect,
-    'flanger': FlangerEffect,
-    'stereo-chorus': StereoChorusEffect,
-    'bitcrusher': BitcrusherEffect,
-    'ring-modulator': RingModulatorEffect
-  };
-
-  const EffectClass = effectClasses[effectName];
-  if (!EffectClass) {
-    throw new Error(`Unknown effect: ${effectName}`);
-  }
-
-  return new EffectClass(audioCtx);
-}
-
-// Export the nativeEffects object
+// Export the effects object
 export const nativeEffects = {
   'none': null,
   'distortion': DistortionEffect,
@@ -729,4 +708,14 @@ export const nativeEffects = {
   'stereo-chorus': StereoChorusEffect,
   'bitcrusher': BitcrusherEffect,
   'ring-modulator': RingModulatorEffect
-}; 
+};
+
+// Export a factory function to create effects
+export function createEffect(effectName, audioCtx) {
+  const EffectClass = nativeEffects[effectName];
+  if (!EffectClass) {
+    throw new Error(`Unknown effect: ${effectName}`);
+  }
+
+  return new EffectClass(audioCtx);
+} 

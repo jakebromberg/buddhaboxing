@@ -78,11 +78,6 @@ class AudioContextManager {
     }
   }
 
-  // Helper function to create a delay
-  async delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
   // Safari-specific audio unlock
   async safariAudioUnlock() {
     if (!this.isSafari) return;
@@ -136,7 +131,6 @@ class AudioContextManager {
       
       // Wait a short time
       console.log("Waiting for oscillator to play");
-      await this.delay(100);
       
       // Stop and disconnect
       console.log("Stopping and disconnecting oscillator");

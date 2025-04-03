@@ -116,82 +116,6 @@ console.log("Available Native Effects:", Object.keys(nativeEffects));
 // Current active box for debugging
 let activeBoxForDebug = null;
 
-// Debug panel elements
-const debugPanel = document.getElementById('debug-panel');
-const paramContainer = document.getElementById('param-container');
-const debugTitle = document.getElementById('debug-title');
-
-// Function to create parameter sliders for a box
-function createParamSliders(box, effectName) {
-  // Get the parameter container for this specific box
-  const boxParamContainer = box.paramContainer;
-  
-  // Clear existing sliders
-  boxParamContainer.innerHTML = '';
-  
-  // Get the effect and its parameters
-  const effect = nativeEffects[effectName];
-  if (!effect || !effect.params) {
-    return 0; // Return 0 parameters
-  }
-  
-  const paramEntries = Object.entries(effect.params);
-  const paramCount = paramEntries.length;
-  
-  // Create sliders for each parameter
-  paramEntries.forEach(([paramName, paramConfig]) => {
-    const paramSlider = document.createElement('div');
-    paramSlider.classList.add('param-slider');
-    // Remove any box styling
-    paramSlider.style.margin = '5px 0';
-    paramSlider.style.padding = '0';
-    paramSlider.style.border = 'none';
-    paramSlider.style.background = 'none';
-    
-    // Create label
-    const label = document.createElement('div');
-    label.classList.add('control-label');
-    label.textContent = paramName.toUpperCase();
-    label.style.marginBottom = '2px';
-    paramSlider.appendChild(label);
-    
-    // Create slider
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.min = paramConfig.min;
-    slider.max = paramConfig.max;
-    slider.step = (paramConfig.max - paramConfig.min) / 100;
-    slider.value = paramConfig.default;
-    slider.classList.add('param-control');
-    slider.style.width = '100%';
-    slider.style.margin = '0';
-    paramSlider.appendChild(slider);
-    
-    // Create value display
-    const valueDisplay = document.createElement('span');
-    valueDisplay.classList.add('value');
-    valueDisplay.textContent = paramConfig.default.toFixed(2);
-    valueDisplay.style.marginLeft = '5px';
-    paramSlider.appendChild(valueDisplay);
-    
-    // Event listener for slider
-    slider.addEventListener('input', (e) => {
-      const value = parseFloat(e.target.value);
-      valueDisplay.textContent = value.toFixed(2);
-      
-      // Apply parameter change to the effect
-      if (box.effectNode && paramConfig.callback) {
-        paramConfig.callback(box.effectNode, value);
-      }
-    });
-    
-    // Add to the container
-    boxParamContainer.appendChild(paramSlider);
-  });
-  
-  return paramCount; // Return the number of parameters
-}
-
 // Box colors (9 distinct colors)
 const boxColors = [
   '#FF6B6B', // red
@@ -374,31 +298,6 @@ function sendBoxUpdate(update) {
   socket.emit('boxUpdated', boxUpdate);
 }
 
-// Hide debug panel when clicking elsewhere
-document.addEventListener('click', (e) => {
-  // If clicking outside the debug panel and not on a box
-  if (!debugPanel.contains(e.target) && !e.target.classList.contains('box') && 
-      !e.target.closest('.box')) {
-    debugPanel.classList.remove('active');
-    activeBoxForDebug = null;
-  }
-});
-
-// Add extra check for Safari to ensure boxes render
-if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf('Chrome') === -1) {
-  console.log('Safari detected, applying special box rendering fix');
-  // Safari-specific rendering fix
-  setTimeout(() => {
-    document.querySelectorAll('.box').forEach((box, index) => {
-      // Force repaint
-      box.style.display = 'none';
-      setTimeout(() => {
-        box.style.display = 'flex';
-      }, 10);
-    });
-  }, 1000);
-}
-
 // Load audio files and create boxes
 async function initializeApp() {
   try {
@@ -427,7 +326,6 @@ async function initializeApp() {
         console.log(`Fixing box ${index + 1}`);
         // Force repaint
         box.style.display = 'none';
-        await new Promise(resolve => setTimeout(resolve, 10));
         box.style.display = 'flex';
         console.log(`Box ${index + 1} fixed`);
       }
