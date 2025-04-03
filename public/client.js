@@ -41,233 +41,61 @@ function updateBoxPosition(box, index) {
   requestAnimationFrame(() => updateBoxPosition(box, index));
 }
 
-// Reusable event handler functions
-const eventHandlers = {
-  // Box dragging handlers
-  handleDragStart: (box, index, e, updateBoxPosition) => {
-    console.log('Mouse down on box:', index + 1);
-    // Don't start dragging if clicking on controls
-    if (e.target === box.effectSelect || e.target === box.mixSlider || e.target === box.volumeSlider || 
-        e.target.closest('select') || e.target.closest('input')) {
-      console.log('Ignoring mousedown on controls');
-      return;
+// Function to load audio files
+async function loadAudioFiles() {
+  try {
+    const response = await fetch('/api/audio-files');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
+    const audioFiles = await response.json();
     
-    box.isDragging = true;
-    box.hasDragged = false; // Reset drag flag on mousedown
-    box.startX = e.clientX - box.offsetLeft;
-    box.startY = e.clientY - box.offsetTop;
-    box.initialX = box.offsetLeft;
-    box.initialY = box.offsetTop;
+    // Initialize audio load status
+    window.audioLoadStatus = {};
+    window.audioBuffers = {};
+    window.tempAudioElements = {};
     
-    console.log('Starting drag:', {
-      startX: box.startX,
-      startY: box.startY,
-      initialX: box.initialX,
-      initialY: box.initialY
-    });
-    
-    // Start smooth position updates
-    updateBoxPosition(box, index);
-  },
-
-  handleDragMove: (box, index, e, debouncedCheckPosition) => {
-    if (!box.isDragging) return;
-    
-    e.preventDefault();
-    const newX = e.clientX - box.startX;
-    const newY = e.clientY - box.startY;
-    
-    // Check if we've actually moved
-    if (Math.abs(newX - box.initialX) > 5 || Math.abs(newY - box.initialY) > 5) {
-      box.hasDragged = true;
-      
-      // Use debounced version of checkBoxPosition
-      debouncedCheckPosition();
-    }
-    
-    box.style.left = `${newX}px`;
-    box.style.top = `${newY}px`;
-  },
-
-  handleDragEnd: async (box, index, debouncedCheckPosition, audioManager, isSafari) => {
-    if (box.isDragging) {
-      console.log('Mouse up on box:', index + 1, 'hasDragged:', box.hasDragged);
-      box.isDragging = false;
-      
-      // Use debounced version for final position check
-      debouncedCheckPosition();
-      
-      // Check if box is inside the table
-      const table = document.getElementById('table');
-      if (table) {
-        const tableRect = table.getBoundingClientRect();
-        const boxRect = box.element.getBoundingClientRect();
-        
-        const insideTable = (
-          boxRect.left >= tableRect.left &&
-          boxRect.right <= tableRect.right &&
-          boxRect.top >= tableRect.top &&
-          boxRect.bottom <= tableRect.bottom
-        );
-        
-        if (insideTable) {
-          console.log('Box dragged into table, initializing audio');
-          // Initialize audio context if needed
-          if (!audioManager.isReady()) {
-            try {
-              await audioManager.initialize();
-              if (box.startAudio) {
-                box.startAudio();
-              }
-            } catch (e) {
-              console.warn('Failed to initialize audio context:', e);
-            }
-          } else if (isSafari && audioManager.getState() === 'suspended') {
-            console.log('Safari detected, attempting audio unlock');
-            try {
-              await audioManager.safariAudioUnlock();
-              console.log('Safari unlock completed after drag');
-              await audioManager.resume();
-              console.log('Audio context resumed after drag');
-              // Start audio playback
-              if (box.startAudio) {
-                box.startAudio();
-              }
-            } catch (e) {
-              console.warn('Failed to unlock audio after drag:', e);
-            }
-          } else {
-            // Audio context is already initialized and running
-            if (box.startAudio) {
-              box.startAudio();
-            }
-          }
-        } else {
-          // Box is outside the table, stop audio
-          console.log('Box dragged out of table, stopping audio');
-          if (box.stopAudio) {
-            box.stopAudio();
-          }
+    // Load each audio file
+    const loadPromises = audioFiles.map(async (url, index) => {
+      try {
+        const response = await fetch(`/loops/${url}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
+        const arrayBuffer = await response.arrayBuffer();
+        
+        // Create a temporary audio element for immediate playback
+        const tempAudio = new Audio();
+        tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
+        
+        window.tempAudioElements[index] = tempAudio;
+        window.audioLoadStatus[index] = 'basic-ready';
+        
+        // Decode the array buffer into an AudioBuffer
+        const audioBuffer = await audioManager.decodeAudioData(arrayBuffer);
+        window.audioBuffers[index] = audioBuffer;
+        
+        return { index, success: true };
+      } catch (error) {
+        console.error(`Error loading audio file ${url}:`, error);
+        window.audioLoadStatus[index] = 'error';
+        return { index, success: false, error };
       }
-      
-      // Only collapse if we actually dragged
-      if (box.hasDragged) {
-        box.element.classList.remove('expanded');
-        const controlsContainer = box.element.querySelector('.controls-container');
-        controlsContainer.style.opacity = '0';
-        box.style.height = '40px';
-      }
-      
-      // Reset the drag flag after a delay
-      setTimeout(() => {
-        box.hasDragged = false;
-      }, 300);
-    }
-  },
-
-  // Box click handler
-  handleBoxClick: (box, index, audioManager, isSafari, adjustBoxSize, e) => {
-    // If we're currently dragging, ignore the click
-    if (box.isDragging) {
-      console.log('Ignoring click during drag');
-      return;
-    }
-
-    // If we just finished dragging, ignore the click
-    if (box.hasDragged) {
-      console.log('Ignoring click after drag');
-      return;
-    }
-
-    console.log('Click on box:', index + 1, 'hasDragged:', box.hasDragged, 'Current state:', {
-      isPlaying: box.isPlaying,
-      audioContextState: audioManager.getState(),
-      hasEffectNode: !!box.effectNode,
-      timestamp: new Date().toISOString()
     });
     
-    // Don't expand if clicking on controls
-    if (box.effectSelect && (box.effectSelect === e.target || box.mixSlider === e.target || box.volumeSlider === e.target)) {
-      console.log('Ignoring click on controls');
-      return;
+    const results = await Promise.all(loadPromises);
+    const failedLoads = results.filter(r => !r.success);
+    
+    if (failedLoads.length > 0) {
+      console.warn('Some audio files failed to load:', failedLoads);
     }
     
-    // Toggle expanded state
-    const isExpanded = box.element.classList.contains('expanded');
-    box.element.classList.toggle('expanded');
-    
-    // Show/hide controls container
-    const controlsContainer = box.element.querySelector('.controls-container');
-    controlsContainer.style.opacity = !isExpanded ? '1' : '0';
-    
-    // Adjust box size based on current effect
-    adjustBoxSize(box.effectSelect.value);
-  },
-
-  // Effect change handler
-  handleEffectChange: (box, state, nativeEffects, createParamSliders, activeBoxForDebug, adjustBoxSize, sendBoxUpdate) => {
-    const effectName = box.effectSelect.value;
-    console.log(`Effect changed to: ${effectName}`);
-    
-    // Clean up existing effect if any
-    state.cleanupEffect();
-    
-    // Setup new effect
-    state.setupEffect(effectName, nativeEffects, createParamSliders, activeBoxForDebug);
-    
-    // If we have an effect selected, ensure the box is expanded
-    if (effectName !== 'none') {
-      // Force the box to be expanded
-      box.element.classList.add('expanded');
-      const controlsContainer = box.element.querySelector('.controls-container');
-      controlsContainer.style.opacity = '1';
-      
-      // Adjust box size based on effect parameters
-      adjustBoxSize(effectName);
-      
-      // Ensure parameters are visible
-      if (box.paramContainer) {
-        box.paramContainer.style.display = 'block';
-        box.paramLabel.style.display = 'block';
-      }
-      if (box.mixLabel) {
-        box.mixLabel.style.display = 'block';
-        box.mixSlider.style.display = 'block';
-      }
-    }
-    
-    // Send update to server
-    sendBoxUpdate({ effect: effectName });
-  },
-
-  // Mix control handler
-  handleMixChange: (box, state, sendBoxUpdate) => {
-    const mixValue = box.mixSlider.value / 100;
-    
-    // Only apply mix if an effect is selected and created
-    if (box.effectSelect.value !== 'none' && state.effectNode) {
-      // Apply the mix
-      state.applyMix(mixValue);
-      
-      // Send update to server
-      sendBoxUpdate({ mixValue });
-    }
-  },
-
-  // Volume control handler
-  handleVolumeChange: (box, state, sendBoxUpdate) => {
-    // Only adjust volume if box is inside the table and audio is playing
-    if (state.sourceNode) {
-      const volume = box.volumeSlider.value / 100;
-      state.setVolume(volume);
-      
-      // Send update to server
-      sendBoxUpdate({ volume });
-    }
+    return results;
+  } catch (error) {
+    console.error('Error fetching audio files:', error);
+    throw error;
   }
-};
+}
 
 // 1. Session & Socket Setup
 // Get session ID from URL params or generate random one
@@ -417,15 +245,6 @@ const boxColors = [
   '#A5AAA3'  // gray
 ];
 
-// 2. Load all audio files
-const audioFiles = ['01.m4a', '02.m4a', '03.m4a', '04.m4a', '05.m4a', '06.m4a', '07.m4a', '08.m4a', '09.m4a'];
-const audioBuffers = new Array(audioFiles.length);
-let loadedCount = 0;
-let boxesCreated = false; // Track if boxes have been created
-
-// Add a new flag to track if effects are ready
-let effectsReady = false;
-
 // Create boxes immediately
 // First ensure audio context is initialized
 createBoxes();
@@ -434,62 +253,6 @@ boxesCreated = true;
 
 // Then start loading audio files
 setTimeout(loadAudioFiles, 100);
-
-// Function to load audio files
-async function loadAudioFiles() {
-  try {
-    const response = await fetch('/api/audio-files');
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const audioFiles = await response.json();
-    
-    // Initialize audio load status
-    window.audioLoadStatus = {};
-    window.audioBuffers = {};
-    window.tempAudioElements = {};
-    
-    // Load each audio file
-    const loadPromises = audioFiles.map(async (url, index) => {
-      try {
-        const response = await fetch(`/loops/${url}`);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        
-        // Create a temporary audio element for immediate playback
-        const tempAudio = new Audio();
-        tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
-        
-        window.tempAudioElements[index] = tempAudio;
-        window.audioLoadStatus[index] = 'basic-ready';
-        
-        // Decode the array buffer into an AudioBuffer
-        const audioBuffer = await audioManager.decodeAudioData(arrayBuffer);
-        window.audioBuffers[index] = audioBuffer;
-        
-        return { index, success: true };
-      } catch (error) {
-        console.error(`Error loading audio file ${url}:`, error);
-        window.audioLoadStatus[index] = 'error';
-        return { index, success: false, error };
-      }
-    });
-    
-    const results = await Promise.all(loadPromises);
-    const failedLoads = results.filter(r => !r.success);
-    
-    if (failedLoads.length > 0) {
-      console.warn('Some audio files failed to load:', failedLoads);
-    }
-    
-    return results;
-  } catch (error) {
-    console.error('Error fetching audio files:', error);
-    throw error;
-  }
-}
 
 // Create session display
 function createSessionDisplay() {
