@@ -1,7 +1,8 @@
 // Audio Context Manager for handling initialization and Safari-specific unlocks
 class AudioContextManager {
+  #audioCtx = null;
+  
   constructor() {
-    this.audioCtx = null;
     this.isInitialized = false;
     this.isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
     console.log(`Safari detected: ${this.isSafari}`);
@@ -14,14 +15,14 @@ class AudioContextManager {
     }
 
     // Create audio context if it doesn't exist
-    if (!this.audioCtx) {
-      this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (!this.#audioCtx) {
+      this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
 
     return new Promise((resolve) => {
       // Wait for audio context to be ready
       const audioContextReady = new Promise((resolveAudio) => {
-        if (this.audioCtx.state === 'running') {
+        if (this.#audioCtx.state === 'running') {
           resolveAudio();
         } else {
           const resumeAudio = () => {
@@ -31,7 +32,7 @@ class AudioContextManager {
               this.safariAudioUnlock()
                 .then(() => {
                   console.log('Safari unlock completed, resuming context');
-                  return this.audioCtx.resume();
+                  return this.#audioCtx.resume();
                 })
                 .then(() => {
                   console.log('Audio context resumed after Safari unlock');
@@ -39,7 +40,7 @@ class AudioContextManager {
                 })
                 .catch(e => {
                   console.log('Safari unlock failed, trying direct resume');
-                  this.audioCtx.resume()
+                  this.#audioCtx.resume()
                     .then(() => {
                       console.log('Audio context resumed directly');
                       resolveAudio();
@@ -51,7 +52,7 @@ class AudioContextManager {
                         console.log('Waiting for user interaction to resume audio context');
                         const handleInteraction = () => {
                           console.log('User interaction detected, attempting to resume audio context');
-                          this.audioCtx.resume()
+                          this.#audioCtx.resume()
                             .then(() => {
                               console.log('Audio context resumed after user interaction');
                               resolveAudio();
@@ -74,7 +75,7 @@ class AudioContextManager {
                 });
             } else {
               // For other browsers, try direct resume
-              this.audioCtx.resume()
+              this.#audioCtx.resume()
                 .then(() => {
                   console.log('Audio context resumed');
                   resolveAudio();
@@ -121,21 +122,21 @@ class AudioContextManager {
     
     return new Promise((resolve) => {
       // Check if audio context is already running
-      if (this.audioCtx && this.audioCtx.state === 'running') {
+      if (this.#audioCtx && this.#audioCtx.state === 'running') {
         console.log("Audio context already running, skipping unlock");
         resolve();
         return;
       }
 
       // Ensure audio context is properly initialized
-      if (!this.audioCtx) {
+      if (!this.#audioCtx) {
         console.log("Creating new audio context");
-        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       }
 
       // Create a silent oscillator instead of using an MP3 file
-      const oscillator = this.audioCtx.createOscillator();
-      const gainNode = this.audioCtx.createGain();
+      const oscillator = this.#audioCtx.createOscillator();
+      const gainNode = this.#audioCtx.createGain();
       
       // Configure for silence
       oscillator.type = 'sine';
@@ -144,7 +145,7 @@ class AudioContextManager {
       
       // Connect nodes
       oscillator.connect(gainNode);
-      gainNode.connect(this.audioCtx.destination);
+      gainNode.connect(this.#audioCtx.destination);
       
       // Start the oscillator
       oscillator.start(0);
@@ -158,7 +159,7 @@ class AudioContextManager {
           
           // Try to resume the audio context
           console.log("Attempting to resume audio context");
-          this.audioCtx.resume()
+          this.#audioCtx.resume()
             .then(() => {
               console.log("Audio context resumed successfully");
               resolve();
@@ -166,13 +167,13 @@ class AudioContextManager {
             .catch(e => {
               console.warn("Failed to resume audio context:", e);
               // If resume fails, check if context is already running
-              if (this.audioCtx.state === 'running') {
+              if (this.#audioCtx.state === 'running') {
                 console.log("Audio context is already running despite resume error");
                 resolve();
               } else {
                 // Try one more time with a delay
                 setTimeout(() => {
-                  this.audioCtx.resume()
+                  this.#audioCtx.resume()
                     .then(() => {
                       console.log("Audio context resumed on second attempt");
                       resolve();
@@ -192,14 +193,57 @@ class AudioContextManager {
     });
   }
 
-  // Get the audio context
-  getContext() {
-    return this.audioCtx;
+  // Create a new audio node
+  createNode(type, options = {}) {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    return this.#audioCtx[`create${type}`](options);
+  }
+
+  // Get current time
+  getCurrentTime() {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    return this.#audioCtx.currentTime;
+  }
+
+  // Get sample rate
+  getSampleRate() {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    return this.#audioCtx.sampleRate;
+  }
+
+  // Get destination
+  getDestination() {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    return this.#audioCtx.destination;
+  }
+
+  // Get state
+  getState() {
+    if (!this.#audioCtx) {
+      return 'not-initialized';
+    }
+    return this.#audioCtx.state;
+  }
+
+  // Resume audio context
+  async resume() {
+    if (!this.#audioCtx) {
+      throw new Error('Audio context not initialized');
+    }
+    return this.#audioCtx.resume();
   }
 
   // Check if the context is initialized
   isReady() {
-    return this.isInitialized;
+    return this.isInitialized && this.#audioCtx !== null;
   }
 
   // Check if running in Safari

@@ -93,7 +93,7 @@ const eventHandlers = {
     box.style.top = `${newY}px`;
   },
 
-  handleDragEnd: (box, index, debouncedCheckPosition, audioManager, audioCtx, isSafari) => {
+  handleDragEnd: (box, index, debouncedCheckPosition, audioManager, isSafari) => {
     if (box.isDragging) {
       console.log('Mouse up on box:', index + 1, 'hasDragged:', box.hasDragged);
       box.isDragging = false;
@@ -117,21 +117,20 @@ const eventHandlers = {
         if (insideTable) {
           console.log('Box dragged into table, initializing audio');
           // Initialize audio context if needed
-          if (!audioCtx) {
+          if (!audioManager.isReady()) {
             audioManager.initialize().then(() => {
-              audioCtx = audioManager.getContext();
               if (box.startAudio) {
                 box.startAudio();
               }
             }).catch(e => {
               console.warn('Failed to initialize audio context:', e);
             });
-          } else if (isSafari && audioCtx.state === 'suspended') {
+          } else if (isSafari && audioManager.getState() === 'suspended') {
             console.log('Safari detected, attempting audio unlock');
             audioManager.safariAudioUnlock()
               .then(() => {
                 console.log('Safari unlock completed after drag');
-                return audioCtx.resume();
+                return audioManager.resume();
               })
               .then(() => {
                 console.log('Audio context resumed after drag');
@@ -174,7 +173,7 @@ const eventHandlers = {
   },
 
   // Box click handler
-  handleBoxClick: (box, index, audioManager, audioCtx, isSafari, adjustBoxSize, e) => {
+  handleBoxClick: (box, index, audioManager, isSafari, adjustBoxSize, e) => {
     // If we're currently dragging, ignore the click
     if (box.isDragging) {
       console.log('Ignoring click during drag');
@@ -189,7 +188,7 @@ const eventHandlers = {
 
     console.log('Click on box:', index + 1, 'hasDragged:', box.hasDragged, 'Current state:', {
       isPlaying: box.isPlaying,
-      audioContextState: audioCtx ? audioCtx.state : 'not-initialized',
+      audioContextState: audioManager.getState(),
       hasEffectNode: !!box.effectNode,
       timestamp: new Date().toISOString()
     });
@@ -291,22 +290,6 @@ if (urlParams.has('session')) {
 const isSafari = audioManager.isSafariBrowser();
 console.log(`Safari detected: ${isSafari}`);
 
-// Initialize audio context and ensure it's unlocked before creating boxes
-let audioCtx = null;
-let isInitialized = false;
-
-// Function to ensure everything is initialized
-async function ensureInitialized() {
-  if (isInitialized) {
-    return Promise.resolve();
-  }
-
-  return audioManager.initialize().then(() => {
-    audioCtx = audioManager.getContext();
-    isInitialized = true;
-  });
-}
-
 // Function to check if a specific audio file is ready
 function isAudioFileReady(index) {
   return window.audioLoadStatus && 
@@ -337,9 +320,6 @@ let syncEnabled = true;
 let lastUpdateTime = 0;
 const UPDATE_INTERVAL = 1000 / 30; // 30 FPS for smooth updates
 
-// Create Tuna effects processor
-const tuna = new Tuna(audioCtx);
-
 // Debug: Log raw tuna object to see what's available
 console.log("Tuna object:", tuna);
 
@@ -348,7 +328,7 @@ const nativeEffects = {
   'none': null,
   'distortion': {
     create: () => {
-      const distortion = audioCtx.createWaveShaper();
+      const distortion = audioManager.createNode('WaveShaper');
       // Create distortion curve
       const curve = new Float32Array(44100);
       const deg = Math.PI / 180;
@@ -376,11 +356,11 @@ const nativeEffects = {
   },
   'delay': {
     create: () => {
-      const delay = audioCtx.createDelay();
+      const delay = audioManager.createNode('Delay');
       delay.delayTime.value = 0.3;
       
       // Add feedback
-      const feedback = audioCtx.createGain();
+      const feedback = audioManager.createNode('Gain');
       feedback.gain.value = 0.4;
       
       delay.connect(feedback);
@@ -395,23 +375,23 @@ const nativeEffects = {
     },
     params: {
       time: { min: 0, max: 1.0, default: 0.3, callback: (effect, value) => {
-        effect._delay.delayTime.setValueAtTime(value, audioCtx.currentTime);
+        effect._delay.delayTime.setValueAtTime(value, audioManager.getCurrentTime());
       }},
       feedback: { min: 0, max: 0.9, default: 0.4, callback: (effect, value) => {
-        effect._feedback.gain.setValueAtTime(value, audioCtx.currentTime);
+        effect._feedback.gain.setValueAtTime(value, audioManager.getCurrentTime());
       }}
     }
   },
   'reverb': {
     create: () => {
-      const convolver = audioCtx.createConvolver();
+      const convolver = audioManager.createNode('Convolver');
       
       // Create impulse response
       const attack = 0;
       const decay = 2.0;
-      const sampleRate = audioCtx.sampleRate;
+      const sampleRate = audioManager.getSampleRate();
       const length = sampleRate * decay;
-      const impulse = audioCtx.createBuffer(2, length, sampleRate);
+      const impulse = audioManager.createNode('Buffer', { numberOfChannels: 2, length, sampleRate });
       const impulseL = impulse.getChannelData(0);
       const impulseR = impulse.getChannelData(1);
       
@@ -431,9 +411,9 @@ const nativeEffects = {
         // Need to create a new impulse with the new decay
         const attack = 0;
         const decay = newValue;
-        const sampleRate = audioCtx.sampleRate;
+        const sampleRate = audioManager.getSampleRate();
         const length = sampleRate * decay;
-        const impulse = audioCtx.createBuffer(2, length, sampleRate);
+        const impulse = audioManager.createNode('Buffer', { numberOfChannels: 2, length, sampleRate });
         const impulseL = impulse.getChannelData(0);
         const impulseR = impulse.getChannelData(1);
         
@@ -452,12 +432,12 @@ const nativeEffects = {
   'flanger': {
     create: () => {
       // Create delay node for flanger
-      const delay = audioCtx.createDelay();
+      const delay = audioManager.createNode('Delay');
       delay.delayTime.value = 0.005; // 5ms initial delay
       
       // Create LFO to modulate delay time
-      const lfo = audioCtx.createOscillator();
-      const lfoGain = audioCtx.createGain();
+      const lfo = audioManager.createNode('Oscillator');
+      const lfoGain = audioManager.createNode('Gain');
       lfo.type = 'sine';
       lfo.frequency.value = 0.5; // 0.5Hz LFO - slow flanger
       lfoGain.gain.value = 0.002; // Modulation depth
@@ -468,7 +448,7 @@ const nativeEffects = {
       lfo.start(0);
       
       // Feedback path
-      const feedback = audioCtx.createGain();
+      const feedback = audioManager.createNode('Gain');
       feedback.gain.value = 0.6; // Medium feedback
       
       // Connect feedback loop
@@ -476,10 +456,10 @@ const nativeEffects = {
       feedback.connect(delay);
       
       // Mixer for flanger intensity
-      const flangerIntensity = audioCtx.createGain();
+      const flangerIntensity = audioManager.createNode('Gain');
       flangerIntensity.gain.value = 0.7; // Default intensity
       
-      const output = audioCtx.createGain();
+      const output = audioManager.createNode('Gain');
       
       // Connect the direct and delayed signals to output
       delay.connect(flangerIntensity);
@@ -496,35 +476,35 @@ const nativeEffects = {
     },
     params: {
       rate: { min: 0.05, max: 5, default: 0.5, callback: (effect, value) => {
-        effect._lfo.frequency.setValueAtTime(value, audioCtx.currentTime);
+        effect._lfo.frequency.setValueAtTime(value, audioManager.getCurrentTime());
       }},
       depth: { min: 0.0001, max: 0.01, default: 0.002, callback: (effect, value) => {
         // Scale for better UI control
-        effect._lfo.frequency.cancelScheduledValues(audioCtx.currentTime);
-        effect._lfo.frequency.setValueAtTime(effect._lfo.frequency.value, audioCtx.currentTime);
+        effect._lfo.frequency.cancelScheduledValues(audioManager.getCurrentTime());
+        effect._lfo.frequency.setValueAtTime(effect._lfo.frequency.value, audioManager.getCurrentTime());
         effect._lfo.connect(effect._delay.delayTime);
       }},
       feedback: { min: 0, max: 0.9, default: 0.6, callback: (effect, value) => {
-        effect._feedback.gain.setValueAtTime(value, audioCtx.currentTime);
+        effect._feedback.gain.setValueAtTime(value, audioManager.getCurrentTime());
       }},
       intensity: { min: 0, max: 1, default: 0.7, callback: (effect, value) => {
-        effect._flangerIntensity.gain.setValueAtTime(value, audioCtx.currentTime);
+        effect._flangerIntensity.gain.setValueAtTime(value, audioManager.getCurrentTime());
       }}
     }
   },
   'stereo-chorus': {
     create: () => {
       // Create two delay lines for stereo effect
-      const delayLeft = audioCtx.createDelay();
-      const delayRight = audioCtx.createDelay();
+      const delayLeft = audioManager.createNode('Delay');
+      const delayRight = audioManager.createNode('Delay');
       delayLeft.delayTime.value = 0.025; // 25ms initial delay
       delayRight.delayTime.value = 0.027; // slightly different for stereo
       
       // Create two LFOs for left and right channels
-      const lfoLeft = audioCtx.createOscillator();
-      const lfoRight = audioCtx.createOscillator();
-      const lfoGainLeft = audioCtx.createGain();
-      const lfoGainRight = audioCtx.createGain();
+      const lfoLeft = audioManager.createNode('Oscillator');
+      const lfoRight = audioManager.createNode('Oscillator');
+      const lfoGainLeft = audioManager.createNode('Gain');
+      const lfoGainRight = audioManager.createNode('Gain');
       
       lfoLeft.type = 'sine';
       lfoRight.type = 'sine';
@@ -543,16 +523,16 @@ const nativeEffects = {
       lfoRight.start(0);
       
       // Create channel splitter and merger for stereo processing
-      const splitter = audioCtx.createChannelSplitter(2);
-      const merger = audioCtx.createChannelMerger(2);
+      const splitter = audioManager.createNode('ChannelSplitter', { numberOfOutputs: 2 });
+      const merger = audioManager.createNode('ChannelMerger', { numberOfInputs: 2 });
       
       // Create mixing gains
-      const chorusGain = audioCtx.createGain();
+      const chorusGain = audioManager.createNode('Gain');
       chorusGain.gain.value = 0.5; // 50% wet by default
       
       // Create input and output nodes
-      const input = audioCtx.createGain();
-      const output = audioCtx.createGain();
+      const input = audioManager.createNode('Gain');
+      const output = audioManager.createNode('Gain');
       
       // Connect everything
       input.connect(splitter);
@@ -583,18 +563,18 @@ const nativeEffects = {
     params: {
       rate: { min: 0.05, max: 2, default: 0.33, callback: (effect, value) => {
         // Set slightly different rates for L/R
-        effect._lfoLeft.frequency.setValueAtTime(value, audioCtx.currentTime);
-        effect._lfoRight.frequency.setValueAtTime(value * 1.15, audioCtx.currentTime);
+        effect._lfoLeft.frequency.setValueAtTime(value, audioManager.getCurrentTime());
+        effect._lfoRight.frequency.setValueAtTime(value * 1.15, audioManager.getCurrentTime());
       }},
       depth: { min: 0.001, max: 0.02, default: 0.005, callback: (effect, value) => {
         // Different depths for L/R
         const lfoGainLeft = effect._lfoLeft.connect(effect._delayLeft.delayTime);
         const lfoGainRight = effect._lfoRight.connect(effect._delayRight.delayTime);
-        if (lfoGainLeft) lfoGainLeft.gain.setValueAtTime(value, audioCtx.currentTime);
-        if (lfoGainRight) lfoGainRight.gain.setValueAtTime(value * 1.2, audioCtx.currentTime);
+        if (lfoGainLeft) lfoGainLeft.gain.setValueAtTime(value, audioManager.getCurrentTime());
+        if (lfoGainRight) lfoGainRight.gain.setValueAtTime(value * 1.2, audioManager.getCurrentTime());
       }},
       mix: { min: 0, max: 1, default: 0.5, callback: (effect, value) => {
-        effect._chorusGain.gain.setValueAtTime(value, audioCtx.currentTime);
+        effect._chorusGain.gain.setValueAtTime(value, audioManager.getCurrentTime());
       }}
     }
   },
@@ -604,7 +584,7 @@ const nativeEffects = {
         // We need to use ScriptProcessorNode for bitcrushing
         // (Yes, it's deprecated but it's the simplest way to do this)
         const bufferSize = 4096;
-        const crusher = audioCtx.createScriptProcessor(bufferSize, 2, 2);
+        const crusher = audioManager.createNode('ScriptProcessor', { bufferSize, numberOfInputChannels: 2, numberOfOutputChannels: 2 });
         
         // Set default values
         crusher.bits = 8;        // Bit depth 
@@ -642,7 +622,7 @@ const nativeEffects = {
       } catch (error) {
         console.error("Failed to create bitcrusher effect:", error);
         // Fallback for Safari - use a simple distortion instead
-        const distortion = audioCtx.createWaveShaper();
+        const distortion = audioManager.createNode('WaveShaper');
         const curve = new Float32Array(44100);
         for (let i = 0; i < 44100; i++) {
           const x = i * 2 / 44100 - 1;
@@ -672,12 +652,12 @@ const nativeEffects = {
     create: () => {
       try {
         // Create oscillator for modulation
-        const osc = audioCtx.createOscillator();
+        const osc = audioManager.createNode('Oscillator');
         osc.type = 'sine';
         osc.frequency.value = 440; // 440Hz - "A" note
         
         // Create gain node for math operations
-        const modulationGain = audioCtx.createGain();
+        const modulationGain = audioManager.createNode('Gain');
         modulationGain.gain.value = 1.0;
         
         // Connect oscillator to gain
@@ -686,11 +666,11 @@ const nativeEffects = {
         
         // Create actual ring modulator using a gain node
         // Ring modulation works by multiplying the audio signal by a sine wave
-        const ringMod = audioCtx.createGain();
+        const ringMod = audioManager.createNode('Gain');
         
         // Create worklet to do the multiplication
         const bufferSize = 4096;
-        const modulator = audioCtx.createScriptProcessor(bufferSize, 2, 2);
+        const modulator = audioManager.createNode('ScriptProcessor', { bufferSize, numberOfInputChannels: 2, numberOfOutputChannels: 2 });
         modulator._ringFreq = 440;
         modulator._depth = 1.0;
         
@@ -703,7 +683,7 @@ const nativeEffects = {
           // Perform the ring modulation
           for (let i = 0; i < bufferSize; i++) {
             // Generate modulator signal
-            const mod = Math.sin(2 * Math.PI * modulator._ringFreq * i / audioCtx.sampleRate);
+            const mod = Math.sin(2 * Math.PI * modulator._ringFreq * i / audioManager.getSampleRate());
             
             // Apply depth - mix between modulated and original signal
             const modDepth = modulator._depth;
@@ -723,8 +703,8 @@ const nativeEffects = {
       } catch (error) {
         console.error("Failed to create ring-modulator effect:", error);
         // Fallback for Safari - use a simpler approach with an oscillator and gain
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        const osc = audioManager.createNode('Oscillator');
+        const gain = audioManager.createNode('Gain');
         
         osc.type = 'sine';
         osc.frequency.value = 440;
@@ -734,7 +714,7 @@ const nativeEffects = {
         osc.start(0);
         
         // Create a gain node that will be our input & output
-        const ringMod = audioCtx.createGain();
+        const ringMod = audioManager.createNode('Gain');
         
         return {
           input: ringMod,
@@ -1013,7 +993,11 @@ function loadSingleAudioFile(url, index) {
     // Check if we're in debug mode
     if (window.debugNoAudio) {
       console.log(`Debug mode: Creating dummy buffer for ${url}`);
-      const dummyBuffer = audioCtx.createBuffer(2, audioCtx.sampleRate * 2, audioCtx.sampleRate);
+      const dummyBuffer = audioManager.createNode('Buffer', { 
+        numberOfChannels: 2, 
+        length: audioManager.getSampleRate() * 2, 
+        sampleRate: audioManager.getSampleRate() 
+      });
       audioBuffers[index] = dummyBuffer;
       window.audioLoadStatus[index] = 'loaded';
       resolve();
@@ -1289,7 +1273,7 @@ function checkBoxPosition(box, boxId) {
     boxPosition: { left: boxRect.left, top: boxRect.top },
     tableBounds: { left: tableRect.left, top: tableRect.top },
     isPlaying: box.isPlaying,
-    audioContextState: audioCtx ? audioCtx.state : 'not-initialized',
+    audioContextState: audioManager.getState(),
     hasEffectNode: !!box.effectNode,
     timestamp: new Date().toISOString()
   });
@@ -1299,7 +1283,7 @@ function checkBoxPosition(box, boxId) {
     if (box.startAudio) {
       console.log(`Starting audio for box ${boxId + 1} - Current state:`, {
         isPlaying: box.isPlaying,
-        audioContextState: audioCtx ? audioCtx.state : 'not-initialized',
+        audioContextState: audioManager.getState(),
         timestamp: new Date().toISOString()
       });
       // Don't set isPlaying here - let startAudio handle it
@@ -1309,7 +1293,7 @@ function checkBoxPosition(box, boxId) {
     if (box.stopAudio && box.isPlaying) {
       console.log(`Stopping audio for box ${boxId + 1} - Current state:`, {
         isPlaying: box.isPlaying,
-        audioContextState: audioCtx ? audioCtx.state : 'not-initialized',
+        audioContextState: audioManager.getState(),
         timestamp: new Date().toISOString()
       });
       box.stopAudio();
@@ -1473,14 +1457,14 @@ function createBox(index, table) {
   });
   
   document.addEventListener('mouseup', () => {
-    eventHandlers.handleDragEnd(box, index, debouncedCheckPosition, audioManager, audioCtx, isSafari);
+    eventHandlers.handleDragEnd(box, index, debouncedCheckPosition, audioManager, isSafari);
   });
   
   // Add click handler to expand/collapse box
   box.addEventListener('click', (e) => {
     console.log('Click on box:', index + 1, 'hasDragged:', hasDragged, 'Current state:', {
       isPlaying: box.isPlaying,
-      audioContextState: audioCtx.state,
+      audioContextState: audioManager.getState(),
       hasEffectNode: !!box.effectNode,
       timestamp: new Date().toISOString()
     });
@@ -1587,7 +1571,7 @@ function createBox(index, table) {
   function startAudio() {
     console.log('startAudio called, checking initialization - Current state:', {
       isPlaying: state.isPlaying,
-      audioContextState: audioCtx ? audioCtx.state : 'not-initialized',
+      audioContextState: audioManager.getState(),
       timestamp: new Date().toISOString()
     });
     
@@ -1598,20 +1582,19 @@ function createBox(index, table) {
     }
 
     // Initialize audio context if needed
-    if (!audioCtx) {
+    if (!audioManager.isReady()) {
       audioManager.initialize().then(() => {
-        audioCtx = audioManager.getContext();
         // Start actual playback after initialization
         startAudioPlayback();
       }).catch(e => {
         console.warn('Failed to initialize audio context:', e);
       });
-    } else if (isSafari && audioCtx.state === 'suspended') {
+    } else if (isSafari && audioManager.getState() === 'suspended') {
       console.log('Safari detected, attempting audio unlock');
       audioManager.safariAudioUnlock()
         .then(() => {
           console.log('Safari unlock completed after drag');
-          return audioCtx.resume();
+          return audioManager.resume();
         })
         .then(() => {
           console.log('Audio context resumed after drag');
@@ -1639,11 +1622,11 @@ function createBox(index, table) {
     box.isPlaying = false;
     
     // Only try to fade out if we have an audio context and a gain node
-    if (audioCtx && state.gainNode) {
+    if (audioManager.isReady() && state.gainNode) {
       // Fade out
-      state.gainNode.gain.cancelScheduledValues(audioCtx.currentTime);
-      state.gainNode.gain.setValueAtTime(state.gainNode.gain.value, audioCtx.currentTime);
-      state.gainNode.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+      state.gainNode.gain.cancelScheduledValues(audioManager.getCurrentTime());
+      state.gainNode.gain.setValueAtTime(state.gainNode.gain.value, audioManager.getCurrentTime());
+      state.gainNode.gain.linearRampToValueAtTime(0, audioManager.getCurrentTime() + 0.5);
 
       // Stop source after fade
       setTimeout(() => {
@@ -1665,7 +1648,7 @@ function createBox(index, table) {
   // Separate function for actual audio playback
   function startAudioPlayback() {
     console.log('Starting audio after initialization - Current state:', {
-      audioContextState: audioCtx.state,
+      audioContextState: audioManager.getState(),
       timestamp: new Date().toISOString()
     });
     
@@ -1680,7 +1663,7 @@ function createBox(index, table) {
       console.log(`Box ${box.boxId + 1} audio state before playback:`, {
         hasBasicAudio,
         hasFullAudio,
-        audioContextState: audioCtx.state,
+        audioContextState: audioManager.getState(),
         sourceNode: !!state.sourceNode,
         timestamp: new Date().toISOString()
       });
@@ -1714,10 +1697,10 @@ function createBox(index, table) {
         if (!state.sourceNode) {
           try {
             console.log(`Creating new source node for box ${box.boxId + 1} - Current state:`, {
-              audioContextState: audioCtx.state,
+              audioContextState: audioManager.getState(),
               timestamp: new Date().toISOString()
             });
-            state.sourceNode = audioCtx.createBufferSource();
+            state.sourceNode = audioManager.createNode('BufferSource');
             state.sourceNode.buffer = audioBuffers[box.boxId];
             state.sourceNode.loop = true;
 
@@ -1740,10 +1723,10 @@ function createBox(index, table) {
             // Set the gain based on the current slider value
             const volume = volumeSlider.value / 100;
             console.log(`Setting volume to ${volume} for box ${box.boxId + 1} - Current state:`, {
-              audioContextState: audioCtx.state,
+              audioContextState: audioManager.getState(),
               timestamp: new Date().toISOString()
             });
-            state.gainNode.gain.setValueAtTime(volume, audioCtx.currentTime);
+            state.gainNode.gain.setValueAtTime(volume, audioManager.getCurrentTime());
             
             // Start playback
             state.sourceNode.start(0);
@@ -1754,7 +1737,7 @@ function createBox(index, table) {
             
             console.log(`Audio started for box ${box.boxId + 1} - Current state:`, {
               isPlaying: state.isPlaying,
-              audioContextState: audioCtx.state,
+              audioContextState: audioManager.getState(),
               timestamp: new Date().toISOString()
             });
           } catch (e) {
@@ -1773,7 +1756,7 @@ function createBox(index, table) {
             box.isPlaying = true;
             console.log(`Basic audio started for box ${box.boxId + 1} - Current state:`, {
               isPlaying: state.isPlaying,
-              audioContextState: audioCtx.state,
+              audioContextState: audioManager.getState(),
               timestamp: new Date().toISOString()
             });
           }).catch(e => {
