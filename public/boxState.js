@@ -14,9 +14,13 @@ export class BoxState {
     
     // Store the effect instance
     this.effectInstance = null;
-    
-    // State flags
-    this.isPlaying = false;
+  }
+  
+  // Computed property for playing state
+  get isPlaying() {
+    return this.#sourceNode !== null && 
+           this.#gainNode !== null && 
+           this.#gainNode.gain.value > 0;
   }
   
   // Private method to check if effect exists
@@ -38,10 +42,14 @@ export class BoxState {
   }
   
   // Public method to start audio playback
-  startAudio(buffer) {
+  async startAudio(buffer) {
     if (!this.audioManager.isReady()) {
-      console.error('Audio context not ready');
-      return;
+      try {
+        await this.audioManager.initialize();
+      } catch (e) {
+        console.warn('Failed to initialize audio context:', e);
+        return;
+      }
     }
 
     // Initialize nodes if needed
@@ -60,7 +68,6 @@ export class BoxState {
 
     // Start playback
     this.#sourceNode.start(0);
-    this.isPlaying = true;
 
     // Fade in
     this.#gainNode.gain.setValueAtTime(0, this.audioManager.getCurrentTime());
@@ -84,8 +91,6 @@ export class BoxState {
       this.#gainNode.gain.setValueAtTime(this.#gainNode.gain.value, this.audioManager.getCurrentTime());
       this.#gainNode.gain.linearRampToValueAtTime(0, this.audioManager.getCurrentTime() + 0.5);
     }
-
-    this.isPlaying = false;
   }
   
   setupAudioRouting() {

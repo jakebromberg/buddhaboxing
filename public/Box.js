@@ -10,7 +10,6 @@ export class Box {
         this.audioFiles = audioFiles;
         this.isDragging = false;
         this.hasDragged = false;
-        this.isPlaying = false;
         this.startX = 0;
         this.startY = 0;
         this.initialX = 0;
@@ -744,18 +743,18 @@ export class Box {
 
         // Start or stop audio based on position
         if (insideTable) {
-            if (!this.isPlaying) {
+            if (!this.state.isPlaying) {
                 console.log(`Starting audio for box ${this.index + 1} - Current state:`, {
-                    isPlaying: this.isPlaying,
+                    isPlaying: this.state.isPlaying,
                     audioContextState: this.audioManager.getState(),
                     timestamp: new Date().toISOString()
                 });
                 this.startAudio();
             }
         } else {
-            if (this.isPlaying) {
+            if (this.state.isPlaying) {
                 console.log(`Stopping audio for box ${this.index + 1} - Current state:`, {
-                    isPlaying: this.isPlaying,
+                    isPlaying: this.state.isPlaying,
                     audioContextState: this.audioManager.getState(),
                     timestamp: new Date().toISOString()
                 });
@@ -765,7 +764,7 @@ export class Box {
     }
 
     async startAudio() {
-        if (this.isPlaying) {
+        if (this.state.isPlaying) {
             console.log(`Box ${this.index + 1} is already playing`);
             return;
         }
@@ -785,74 +784,16 @@ export class Box {
             }
         }
 
-        if (!this.audioManager.isReady()) {
-            try {
-                await this.audioManager.initialize();
-                this.startAudioPlayback();
-            } catch (e) {
-                console.warn('Failed to initialize audio context:', e);
-            }
-        } else if (this.isSafari && this.audioManager.getState() === 'suspended') {
-            try {
-                await this.audioManager.safariAudioUnlock();
-                await this.audioManager.resume();
-                this.startAudioPlayback();
-            } catch (e) {
-                console.warn('Failed to unlock audio after drag:', e);
-            }
-        } else {
-            this.startAudioPlayback();
+        try {
+            await this.state.startAudio(window.audioBuffers[this.index]);
+            console.log(`Successfully started audio for box ${this.index + 1}`);
+        } catch (e) {
+            console.error(`Error starting audio for box ${this.index + 1}:`, e);
         }
     }
 
     stopAudio() {
-        this.isPlaying = false;
-        this.element.isPlaying = false;
-
-        if (this.audioManager.isReady()) {
-            this.state.stopAudio();
-        } else {
-            const tempAudio = window.tempAudioElements[this.index];
-            if (tempAudio) {
-                tempAudio.pause();
-                tempAudio.currentTime = 0;
-            }
-        }
-    }
-
-    async startAudioPlayback() {
-        try {
-            // If already playing, don't start again
-            if (this.state.isPlaying) {
-                console.log(`Box ${this.index + 1} is already playing`);
-                return;
-            }
-
-            console.log(`Starting audio playback for box ${this.index + 1}`);
-
-            // Ensure audio context is initialized
-            console.log('Initializing audio context...');
-            await this.audioManager.initialize();
-
-            if (!this.audioManager.isReady()) {
-                console.error('Audio context not ready after initialization');
-                throw new Error('Audio context not ready');
-            }
-
-            // Check if we have an audio buffer
-            if (!window.audioBuffers || !window.audioBuffers[this.index]) {
-                console.error(`No audio buffer available for box ${this.index + 1}`);
-                throw new Error('No audio buffer available');
-            }
-
-            // Start audio playback using BoxState
-            this.state.startAudio(window.audioBuffers[this.index]);
-
-            console.log(`Successfully started audio for box ${this.index + 1}`);
-        } catch (e) {
-            console.error(`Error starting audio for box ${this.index + 1}:`, e);
-            throw e;
-        }
+        this.state.stopAudio();
     }
 
     async loadSingleAudioFile(url, index) {
