@@ -80,10 +80,7 @@ class AudioContextManager {
 
   // Helper function to create a delay
   async delay(ms) {
-    const start = Date.now();
-    while (Date.now() - start < ms) {
-      // Busy wait
-    }
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   // Safari-specific audio unlock

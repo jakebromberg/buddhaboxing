@@ -18,7 +18,6 @@ export class BoxState {
     
     // State flags
     this.isPlaying = false;
-    this.effectsReady = false;
   }
   
   setupAudioRouting() {

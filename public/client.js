@@ -5,41 +5,6 @@ import { nativeEffects } from './nativeEffects.js';
 // Create audio manager instance
 const audioManager = new AudioContextManager();
 
-// Function to update box position smoothly
-function updateBoxPosition(box, index) {
-  // Only update if we're dragging
-  if (!box.isDragging) return;
-  
-  // Get current position
-  const currentX = box.offsetLeft;
-  const currentY = box.offsetTop;
-  
-  // Calculate target position
-  const targetX = box.initialX;
-  const targetY = box.initialY;
-  
-  // Calculate distance to move
-  const dx = targetX - currentX;
-  const dy = targetY - currentY;
-  
-  // If we're close enough to target, stop updating
-  if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
-    return;
-  }
-  
-  // Move towards target with easing
-  const easing = 0.1; // Adjust this value to control smoothness (0-1)
-  const newX = currentX + dx * easing;
-  const newY = currentY + dy * easing;
-  
-  // Update position
-  box.style.left = `${newX}px`;
-  box.style.top = `${newY}px`;
-  
-  // Schedule next update
-  requestAnimationFrame(() => updateBoxPosition(box, index));
-}
-
 // Function to load audio files
 async function loadAudioFiles() {
   try {
@@ -121,13 +86,6 @@ if (urlParams.has('session')) {
 const isSafari = audioManager.isSafariBrowser();
 console.log(`Safari detected: ${isSafari}`);
 
-// Function to check if a specific audio file is ready
-function isAudioFileReady(index) {
-  return window.audioLoadStatus && 
-    (window.audioLoadStatus[index] === 'loaded' || 
-     window.audioLoadStatus[index] === 'basic-ready');
-}
-
 // Connect to Socket.IO
 const socket = io();
 
@@ -148,7 +106,6 @@ socket.on('initialState', (data) => {
 let boxPositionsFromServer = null;
 let boxes = [];
 let syncEnabled = true;
-let lastUpdateTime = 0;
 let boxesCreated = false;
 let audioFiles = [];
 const UPDATE_INTERVAL = 1000 / 30; // 30 FPS for smooth updates
@@ -163,13 +120,6 @@ let activeBoxForDebug = null;
 const debugPanel = document.getElementById('debug-panel');
 const paramContainer = document.getElementById('param-container');
 const debugTitle = document.getElementById('debug-title');
-const closeDebugBtn = document.querySelector('#debug-panel .close-btn');
-
-// Close debug panel when clicking the X
-closeDebugBtn.addEventListener('click', () => {
-  debugPanel.classList.remove('active');
-  activeBoxForDebug = null;
-});
 
 // Function to create parameter sliders for a box
 function createParamSliders(box, effectName) {
@@ -402,73 +352,6 @@ function createBoxes() {
       }
     });
   }, 500);
-}
-
-// Add debounce function at the top level
-function debounce(func, wait) {
-  let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
-}
-
-function checkBoxPosition(box, boxId) {
-  // Get table boundaries
-  const table = document.getElementById('table');
-  
-  // Safety check - if table doesn't exist, don't try to position boxes
-  if (!table) {
-    console.error('Table element not found - check if table element exists in HTML');
-    return;
-  }
-  
-  const tableRect = table.getBoundingClientRect();
-  const boxRect = box.element.getBoundingClientRect();
-  
-  // Check if box is within the table
-  const insideTable = (
-    boxRect.left >= tableRect.left &&
-    boxRect.right <= tableRect.right &&
-    boxRect.top >= tableRect.top &&
-    boxRect.bottom <= tableRect.bottom
-  );
-  
-  console.log(`Box ${boxId + 1} position check:`, {
-    insideTable,
-    boxPosition: { left: boxRect.left, top: boxRect.top },
-    tableBounds: { left: tableRect.left, top: tableRect.top },
-    isPlaying: box.isPlaying,
-    audioContextState: audioManager.getState(),
-    hasEffectNode: !!box.effectNode,
-    timestamp: new Date().toISOString()
-  });
-  
-  // Start or stop audio based on position
-  if (insideTable) {
-    if (box.startAudio) {
-      console.log(`Starting audio for box ${boxId + 1} - Current state:`, {
-        isPlaying: box.isPlaying,
-        audioContextState: audioManager.getState(),
-        timestamp: new Date().toISOString()
-      });
-      // Don't set isPlaying here - let startAudio handle it
-      box.startAudio();
-    }
-  } else {
-    if (box.stopAudio && box.isPlaying) {
-      console.log(`Stopping audio for box ${boxId + 1} - Current state:`, {
-        isPlaying: box.isPlaying,
-        audioContextState: audioManager.getState(),
-        timestamp: new Date().toISOString()
-      });
-      box.stopAudio();
-    }
-  }
 }
 
 // Function to send box updates to server
