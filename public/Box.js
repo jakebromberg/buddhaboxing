@@ -443,16 +443,14 @@ export class Box {
     handleMixChange(e) {
         const mixValue = this.mixSlider.value / 100;
 
-        if (this.effectSelect.value !== 'none' && this.state.effectNode) {
+        if (this.effectSelect.value !== 'none') {
             this.state.applyMix(mixValue);
         }
     }
 
     handleVolumeChange(e) {
-        if (this.state.sourceNode) {
-            const volume = this.volumeSlider.value / 100;
-            this.state.setVolume(volume);
-        }
+        const volume = this.volumeSlider.value / 100;
+        this.state.setVolume(volume);
     }
 
     createParamSliders(box, effectName) {
@@ -739,9 +737,8 @@ export class Box {
             insideTable,
             boxPosition: { left: boxRect.left, top: boxRect.top },
             tableBounds: { left: tableRect.left, top: tableRect.top },
-            isPlaying: this.isPlaying,
+            ...this.state.getDebugInfo(),
             audioContextState: this.audioManager.getState(),
-            hasEffectNode: !!this.state.effectNode,
             timestamp: new Date().toISOString()
         });
 
@@ -812,14 +809,8 @@ export class Box {
         this.isPlaying = false;
         this.element.isPlaying = false;
 
-        if (this.audioManager.isReady() && this.state.gainNode) {
-            this.state.gainNode.gain.cancelScheduledValues(this.audioManager.getCurrentTime());
-            this.state.gainNode.gain.setValueAtTime(this.state.gainNode.gain.value, this.audioManager.getCurrentTime());
-            this.state.gainNode.gain.linearRampToValueAtTime(0, this.audioManager.getCurrentTime() + 0.5);
-
-            setTimeout(() => {
-                this.state.cleanup();
-            }, 600);
+        if (this.audioManager.isReady()) {
+            this.state.stopAudio();
         } else {
             const tempAudio = window.tempAudioElements[this.index];
             if (tempAudio) {
@@ -854,41 +845,8 @@ export class Box {
                 throw new Error('No audio buffer available');
             }
 
-            console.log('Creating audio nodes...');
-            // Create audio nodes
-            this.state.gainNode = this.audioManager.createGain();
-            this.state.dryNode = this.audioManager.createGain();
-            this.state.wetNode = this.audioManager.createGain();
-            this.state.mixerNode = this.audioManager.createGain();
-
-            // Initialize gain values
-            this.state.gainNode.gain.value = 0;
-            this.state.dryNode.gain.value = 1;
-            this.state.wetNode.gain.value = 0;
-
-            console.log('Setting up audio routing...');
-            // Set up initial routing
-            this.state.setupAudioRouting();
-
-            console.log('Creating source node...');
-            // Create source node
-            this.state.sourceNode = this.audioManager.createBufferSource();
-            this.state.sourceNode.buffer = window.audioBuffers[this.index];
-            this.state.sourceNode.loop = true;
-
-            console.log('Connecting source to gain...');
-            // Connect source to gain
-            this.state.sourceNode.connect(this.state.gainNode);
-
-            console.log('Starting playback...');
-            // Start playback
-            this.state.sourceNode.start(0);
-            this.state.isPlaying = true;
-
-            console.log('Setting up fade in...');
-            // Fade in
-            this.state.gainNode.gain.setValueAtTime(0, this.audioManager.getCurrentTime());
-            this.state.gainNode.gain.linearRampToValueAtTime(1, this.audioManager.getCurrentTime() + 0.5);
+            // Start audio playback using BoxState
+            this.state.startAudio(window.audioBuffers[this.index]);
 
             console.log(`Successfully started audio for box ${this.index + 1}`);
         } catch (e) {
@@ -984,7 +942,7 @@ export class Box {
     updateAudioContext() {
         console.log('Updating box audio context');
         if (this.audioManager.isReady()) {
-            // Reinitialize audio nodes if needed
+            // Reinitialize state if needed
             if (this.state) {
                 this.state.cleanup();
                 this.state.setupEffect(this.effectSelect.value);
