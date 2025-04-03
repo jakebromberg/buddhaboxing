@@ -1478,7 +1478,47 @@ function createBox(index, table) {
   
   // Add click handler to expand/collapse box
   box.addEventListener('click', (e) => {
-    eventHandlers.handleBoxClick(box, index, audioManager, audioCtx, isSafari, adjustBoxSize, e);
+    console.log('Click on box:', index + 1, 'hasDragged:', hasDragged, 'Current state:', {
+      isPlaying: box.isPlaying,
+      audioContextState: audioCtx.state,
+      hasEffectNode: !!box.effectNode,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Don't expand if clicking on controls or if the event came from a slider
+    if (e.target === effectSelect || 
+        e.target === mixSlider || 
+        e.target === volumeSlider ||
+        e.target.closest('input[type="range"]')) {
+      console.log('Ignoring click on controls');
+      return;
+    }
+    
+    // If we dragged, don't toggle the box state
+    if (hasDragged) {
+      console.log('Ignoring click after drag');
+      hasDragged = false; // Reset the flag for next interaction
+      return;
+    }
+    
+    // Toggle expanded state
+    box.classList.toggle('expanded');
+    
+    // Show/hide controls container
+    const controlsContainer = box.querySelector('.controls-container');
+    controlsContainer.style.opacity = box.classList.contains('expanded') ? '1' : '0';
+    
+    // Adjust box size based on current effect
+    adjustBoxSize(effectSelect.value);
+  });
+  
+  // Add mousedown handler to sliders to prevent box click
+  mixSlider.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+  });
+  
+  volumeSlider.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
   });
   
   // Function to adjust box size based on effect parameters
