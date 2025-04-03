@@ -254,11 +254,12 @@ export class Box {
       if (this.hasDragged) {
         debouncedCheckPosition();
         
-        // Update box appearance
-        this.element.classList.remove('expanded');
-        const controlsContainer = this.element.querySelector('.controls-container');
-        controlsContainer.style.opacity = '0';
-        this.element.style.height = '40px';
+        // Only collapse if the box wasn't expanded before dragging
+        if (!this.element.classList.contains('expanded')) {
+          const controlsContainer = this.element.querySelector('.controls-container');
+          controlsContainer.style.opacity = '0';
+          this.element.style.height = '40px';
+        }
       }
       
       // Reset drag state immediately
