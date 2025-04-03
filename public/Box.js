@@ -15,9 +15,11 @@ export class Box {
     this.startY = 0;
     this.initialX = 0;
     this.initialY = 0;
+    this.debugMode = false;
     
     this.createBoxElement();
     this.setupEventListeners();
+    this.setupDebugModeListener();
   }
 
   createBoxElement() {
@@ -176,6 +178,39 @@ export class Box {
     
     // Volume control
     this.volumeSlider.addEventListener('input', (e) => this.handleVolumeChange(e));
+  }
+
+  setupDebugModeListener() {
+    document.addEventListener('keydown', (e) => {
+      // Debug the key event
+      console.log('Key event:', {
+        key: e.key,
+        code: e.code,
+        altKey: e.altKey,
+        shiftKey: e.shiftKey,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey
+      });
+
+      // Check for Option (Alt) + Shift + K
+      const isOptionKey = e.altKey || e.metaKey; // Support both Option and Alt
+      const isShiftKey = e.shiftKey;
+      const isKKey = e.key.toLowerCase() === 'k' || e.code === 'KeyK';
+
+      if (isOptionKey && isShiftKey && isKKey) {
+        e.preventDefault(); // Prevent any default behavior
+        this.debugMode = !this.debugMode;
+        console.log('Debug mode:', this.debugMode ? 'enabled' : 'disabled');
+        
+        // Adjust box size based on debug mode
+        this.adjustBoxSize(this.effectSelect.value);
+        
+        // Recreate parameter sliders to show/hide debug inputs
+        if (this.effectSelect.value !== 'none') {
+          this.createParamSliders(this.element, this.effectSelect.value);
+        }
+      }
+    });
   }
 
   getBoxColor() {
@@ -403,10 +438,49 @@ export class Box {
     
     // Create sliders for each parameter
     Object.entries(params).forEach(([paramName, param]) => {
+      // Create parameter container
+      const paramContainer = document.createElement('div');
+      paramContainer.classList.add('param-container');
+      paramContainer.style.marginBottom = '20px';
+      paramContainer.style.width = '100%';
+      
+      // Create label container
+      const labelContainer = document.createElement('div');
+      labelContainer.style.marginBottom = '10px';
+      
       const label = document.createElement('div');
       label.classList.add('control-label');
       label.textContent = paramName.toUpperCase();
-      this.paramContainer.appendChild(label);
+      label.style.fontSize = '12px';
+      label.style.color = '#666';
+      labelContainer.appendChild(label);
+      
+      // Create slider container
+      const sliderContainer = document.createElement('div');
+      sliderContainer.style.display = 'flex';
+      sliderContainer.style.alignItems = 'center';
+      sliderContainer.style.width = '100%';
+      sliderContainer.style.gap = '10px'; // Use gap for consistent spacing
+      
+      // Create min value input if in debug mode
+      let minInput;
+      if (this.debugMode) {
+        minInput = document.createElement('input');
+        minInput.type = 'number';
+        minInput.step = '0.01';
+        minInput.value = param.min;
+        minInput.style.width = '80px';
+        minInput.style.padding = '4px';
+        minInput.style.border = '1px solid #ccc';
+        minInput.style.borderRadius = '4px';
+        minInput.addEventListener('change', (e) => {
+          const newMin = parseFloat(e.target.value);
+          if (!isNaN(newMin) && newMin < param.max) {
+            param.min = newMin;
+            slider.min = newMin;
+          }
+        });
+      }
       
       const slider = document.createElement('input');
       slider.type = 'range';
@@ -414,6 +488,29 @@ export class Box {
       slider.max = param.max;
       slider.value = param.default;
       slider.classList.add('param-control');
+      slider.style.flex = '1';
+      slider.style.minWidth = '0'; // Important for flex item to shrink properly
+      slider.style.height = '20px';
+      
+      // Create max value input if in debug mode
+      let maxInput;
+      if (this.debugMode) {
+        maxInput = document.createElement('input');
+        maxInput.type = 'number';
+        maxInput.step = '0.01';
+        maxInput.value = param.max;
+        maxInput.style.width = '80px';
+        maxInput.style.padding = '4px';
+        maxInput.style.border = '1px solid #ccc';
+        maxInput.style.borderRadius = '4px';
+        maxInput.addEventListener('change', (e) => {
+          const newMax = parseFloat(e.target.value);
+          if (!isNaN(newMax) && newMax > param.min) {
+            param.max = newMax;
+            slider.max = newMax;
+          }
+        });
+      }
       
       slider.addEventListener('input', (e) => {
         const value = parseFloat(e.target.value);
@@ -428,7 +525,18 @@ export class Box {
         }
       });
       
-      this.paramContainer.appendChild(slider);
+      // Assemble the containers in the correct order
+      if (this.debugMode) {
+        sliderContainer.appendChild(minInput);
+      }
+      sliderContainer.appendChild(slider);
+      if (this.debugMode) {
+        sliderContainer.appendChild(maxInput);
+      }
+      
+      paramContainer.appendChild(labelContainer);
+      paramContainer.appendChild(sliderContainer);
+      this.paramContainer.appendChild(paramContainer);
     });
   }
 
@@ -477,6 +585,19 @@ export class Box {
     const paramCount = Object.keys(params).length;
     const volumeHeight = 60; // Height for volume control
     const totalHeight = baseHeight + (paramCount * paramHeight) + volumeHeight;
+
+    // Adjust width based on debug mode
+    if (this.debugMode) {
+      this.element.style.width = '300px'; // Wider width for debug mode
+      if (this.paramContainer) {
+        this.paramContainer.style.width = '280px'; // Slightly smaller than box width
+      }
+    } else {
+      this.element.style.width = '120px'; // Default width
+      if (this.paramContainer) {
+        this.paramContainer.style.width = '100px'; // Default width
+      }
+    }
 
     console.log('Calculating new height:', {
       paramCount,
