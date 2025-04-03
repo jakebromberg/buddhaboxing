@@ -1,7 +1,3 @@
-/***********************************************
- * Audio Effects with Tuna.js - Multi-user Edition
- ***********************************************/
-
 // Import AudioContextManager
 import AudioContextManager from './audioContextManager.js';
 import { BoxState } from './boxState.js';
@@ -320,10 +316,7 @@ let syncEnabled = true;
 let lastUpdateTime = 0;
 const UPDATE_INTERVAL = 1000 / 30; // 30 FPS for smooth updates
 
-// Debug: Log raw tuna object to see what's available
-console.log("Tuna object:", tuna);
-
-// Define our own native WebAudio effects since Tuna effects appear unavailable
+// Define our own native WebAudio effects
 const nativeEffects = {
   'none': null,
   'distortion': {
@@ -816,11 +809,6 @@ function setupEffect(effectName, gainNode, wetNode, box) {
 const availableEffectPresets = nativeEffects;
 
 // Filter available effects
-function filterAvailableEffects() {
-  console.log("Using native Web Audio effects instead of Tuna.js");
-  return nativeEffects;
-}
-
 // Debug: Log all available Native Web Audio effects
 console.log("Available Native Effects:", Object.keys(nativeEffects));
 
