@@ -98,9 +98,21 @@ socket.on('initialState', (data) => {
     timestamp: new Date().toISOString()
   });
   
-  // If we receive box positions, apply them after boxes are created
+  // If we receive box positions, store them
   if (data.boxes) {
     boxPositionsFromServer = data.boxes;
+    
+    // If boxes haven't been created yet, create them now
+    if (!boxesCreated) {
+      initializeApp();
+    } else {
+      // If boxes were already created, update their positions
+      boxes.forEach((box, index) => {
+        if (boxPositionsFromServer[index]) {
+          box.updateFromServer(boxPositionsFromServer[index]);
+        }
+      });
+    }
   }
 });
 
@@ -338,6 +350,14 @@ function createBoxes() {
       box.updateFromServer(boxPositionsFromServer[index]);
     }
   });
+
+  // After all boxes are created and positions are set, check positions
+  // Use a small delay to ensure DOM updates are complete
+  setTimeout(() => {
+    boxes.forEach(box => {
+      box.checkBoxPosition();
+    });
+  }, 100);
 }
 
 function sendBoxUpdate(update) {
@@ -396,16 +416,49 @@ async function initializeApp() {
     // Initialize audio context
     await audioManager.initialize();
     
-    // Create boxes
-    createBoxes();
-    boxesCreated = true;
+    // Only create boxes if we have positions from server or after a timeout
+    if (boxPositionsFromServer || !socket.connected) {
+      createBoxes();
+      boxesCreated = true;
+    } else {
+      // Set a timeout to create boxes with default positions if we don't get server data
+      setTimeout(() => {
+        if (!boxesCreated) {
+          console.log('Creating boxes with default positions - no server data received');
+          createBoxes();
+          boxesCreated = true;
+        }
+      }, 2000); // Wait 2 seconds for server data before falling back
+    }
+
+    // For Safari, set up a one-time click handler to initialize audio
+    if (isSafari) {
+      const handleFirstInteraction = async () => {
+        console.log('First user interaction detected, initializing audio...');
+        try {
+          await audioManager.initialize();
+          // Recheck box positions after audio is initialized
+          boxes.forEach(box => {
+            box.checkBoxPosition();
+          });
+        } catch (error) {
+          console.error('Error initializing audio after interaction:', error);
+        }
+        // Remove the event listeners
+        ['click', 'touchstart', 'mousedown', 'keydown'].forEach(event => {
+          document.removeEventListener(event, handleFirstInteraction);
+        });
+      };
+
+      // Add the event listeners
+      ['click', 'touchstart', 'mousedown', 'keydown'].forEach(event => {
+        document.addEventListener(event, handleFirstInteraction, { once: true });
+      });
+    }
   } catch (error) {
     console.error('Error initializing app:', error);
   }
 }
-
-// Initialize the app
-initializeApp();
 
 // Add event registration confirmation
 console.log('Socket event handlers registered:', {

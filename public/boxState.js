@@ -95,7 +95,14 @@ export class BoxState {
   
   setupAudioRouting() {
     if (!this.audioManager.isReady()) {
-      console.error('Audio context not ready');
+      console.warn('Audio context not ready, will retry after initialization');
+      // Add a one-time state change listener
+      const removeListener = this.audioManager.onStateChange((state) => {
+        if (state === 'running') {
+          this.setupAudioRouting();
+          removeListener();
+        }
+      });
       return;
     }
     
