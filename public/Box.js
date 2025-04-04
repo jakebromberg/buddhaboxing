@@ -15,10 +15,12 @@ export class Box {
         this.initialX = 0;
         this.initialY = 0;
         this.debugMode = false;
+        this.audioBuffer = null;
 
         this.createBoxElement();
         this.setupEventListeners();
         this.setupDebugModeListener();
+        this.loadAudioLoop();
     }
 
     createBoxElement() {
@@ -763,6 +765,25 @@ export class Box {
         }
     }
 
+    async loadAudioLoop() {
+        try {
+            console.log(`Loading audio file: ${this.audioFiles[this.index]} for box ${this.index + 1}`);
+            const response = await fetch(`/loops/${this.audioFiles[this.index]}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const arrayBuffer = await response.arrayBuffer();
+            console.log(`Audio file loaded, decoding for box ${this.index + 1}`);
+
+            // Decode the array buffer into an AudioBuffer
+            this.audioBuffer = await this.audioManager.decodeAudioData(arrayBuffer);
+            console.log(`Audio buffer decoded for box ${this.index + 1}`);
+        } catch (error) {
+            console.error(`Error loading audio file for box ${this.index + 1}:`, error);
+        }
+    }
+
     async startAudio() {
         if (this.state.isPlaying) {
             console.log(`Box ${this.index + 1} is already playing`);
@@ -770,14 +791,13 @@ export class Box {
         }
 
         // Check if audio buffer is available
-        if (!window.audioBuffers || !window.audioBuffers[this.index]) {
+        if (!this.audioBuffer) {
             console.log(`Audio buffer not available for box ${this.index + 1}, waiting for it to load...`);
             try {
-                // Wait for the audio buffer to be loaded
-                while (!window.audioBuffers || !window.audioBuffers[this.index]) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                await this.loadAudioLoop();
+                if (!this.audioBuffer) {
+                    throw new Error('Failed to load audio buffer');
                 }
-                console.log(`Audio buffer loaded for box ${this.index + 1}`);
             } catch (error) {
                 console.warn(`Error waiting for audio buffer: ${error}`);
                 return;
@@ -785,7 +805,7 @@ export class Box {
         }
 
         try {
-            await this.state.startAudio(window.audioBuffers[this.index]);
+            await this.state.startAudio(this.audioBuffer);
             console.log(`Successfully started audio for box ${this.index + 1}`);
         } catch (e) {
             console.error(`Error starting audio for box ${this.index + 1}:`, e);
@@ -794,52 +814,6 @@ export class Box {
 
     stopAudio() {
         this.state.stopAudio();
-    }
-
-    async loadSingleAudioFile(url, index) {
-        try {
-            console.log(`Loading audio file: ${url} for box ${index + 1}`);
-            const response = await fetch(`/loops/${url}`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const arrayBuffer = await response.arrayBuffer();
-            console.log(`Audio file loaded, decoding for box ${index + 1}`);
-
-            // Create a temporary audio element for immediate playback
-            const tempAudio = new Audio();
-            tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
-
-            window.tempAudioElements = window.tempAudioElements || {};
-            window.tempAudioElements[index] = tempAudio;
-
-            window.audioLoadStatus[index] = 'basic-ready';
-
-            // Decode the array buffer into an AudioBuffer
-            const audioBuffer = await this.audioManager.decodeAudioData(arrayBuffer);
-            console.log(`Audio buffer decoded for box ${index + 1}`);
-
-            // Store the audio buffer
-            this.audioBuffer = audioBuffer;
-            window.audioBuffers = window.audioBuffers || {};
-            window.audioBuffers[index] = audioBuffer;
-
-            const box = this.element;
-            if (this.isBoxInsideTable(box)) {
-                tempAudio.loop = true;
-                tempAudio.volume = box.volumeSlider ? box.volumeSlider.value / 100 : 1;
-                try {
-                    await tempAudio.play();
-                } catch (e) {
-                    console.warn(`Could not start immediate playback for box ${index + 1}:`, e);
-                }
-            }
-        } catch (error) {
-            console.error(`Error loading audio file ${url}:`, error);
-            window.audioLoadStatus[index] = 'error';
-            throw error;
-        }
     }
 
     updateFromServer({ newX, newY, effect, mixValue, volume }) {
@@ -877,17 +851,6 @@ export class Box {
             // Trigger the input event to apply the volume
             const inputEvent = new Event('input');
             this.volumeSlider.dispatchEvent(inputEvent);
-        }
-    }
-
-    updateAudioContext() {
-        console.log('Updating box audio context');
-        if (this.audioManager.isReady()) {
-            // Reinitialize state if needed
-            if (this.state) {
-                this.state.cleanup();
-                this.state.setupEffect(this.effectSelect.value);
-            }
         }
     }
 } 

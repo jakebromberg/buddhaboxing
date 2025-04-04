@@ -1,11 +1,33 @@
 // Audio Context Manager for handling initialization and Safari-specific unlocks
 class AudioContextManager {
   #audioCtx = null;
+  #stateChangeCallbacks = new Set();
   
   constructor() {
     this.isInitialized = false;
     this.isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    this.#audioCtx.onstatechange = () => {
+      console.log('Audio context state changed to:', this.#audioCtx.state);
+      this.#stateChangeCallbacks.forEach(callback => callback(this.#audioCtx.state));
+      
+      // If auto-initialize is enabled and state is running, initialize
+      if (this.isReady()) {
+        this.initialize().catch(console.error);
+      }
+    };
+
     console.log(`Safari detected: ${this.isSafari}`);
+  }
+
+  // Add a callback for state changes
+  onStateChange(callback) {
+    this.#stateChangeCallbacks.add(callback);
+    // If we already have an audio context, call the callback immediately
+    if (this.#audioCtx) {
+      callback(this.#audioCtx.state);
+    }
+    return () => this.#stateChangeCallbacks.delete(callback);
   }
 
   // Initialize the audio context
@@ -14,16 +36,9 @@ class AudioContextManager {
     console.log('Current state:', this.#audioCtx ? this.#audioCtx.state : 'not created');
     console.log('Is initialized:', this.isInitialized);
     
-    if (this.isInitialized && this.#audioCtx && this.#audioCtx.state === 'running') {
+    if (this.isInitialized && this.isReady()) {
       console.log('Audio context already initialized and running');
       return;
-    }
-
-    // Create audio context if it doesn't exist
-    if (!this.#audioCtx) {
-      console.log('Creating new audio context');
-      this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      console.log('Audio context created, initial state:', this.#audioCtx.state);
     }
 
     // For Safari, we need to wait for user interaction before resuming
@@ -86,7 +101,7 @@ class AudioContextManager {
     console.log("Current audio context state:", this.#audioCtx ? this.#audioCtx.state : 'not created');
     
     // Check if audio context is already running
-    if (this.#audioCtx && this.#audioCtx.state === 'running') {
+    if (this.isReady()) {
       console.log("Audio context already running, skipping unlock");
       return;
     }

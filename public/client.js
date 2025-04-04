@@ -5,70 +5,11 @@ import { nativeEffects } from './nativeEffects.js';
 // Create audio manager instance
 const audioManager = new AudioContextManager();
 
-// Function to load audio files
-async function loadAudioFiles() {
-  try {
-    console.log('Starting audio file loading...');
-    
-    console.log('Initializing audio load status...');
-    window.audioLoadStatus = {};
-    window.audioBuffers = {};
-    window.tempAudioElements = {};
-    
-    // Ensure audio context is initialized
-    console.log('Checking audio context before loading files...');
-    await audioManager.initialize();
-    console.log('Audio context state before loading:', audioManager.getState());
-    
-    // Load each audio file
-    console.log('Starting to load individual audio files...');
-    const loadPromises = audioFiles.map(async (url, index) => {
-      try {
-        console.log(`Loading audio file ${index + 1}: ${url}`);
-        const response = await fetch(`/loops/${url}`);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const arrayBuffer = await response.arrayBuffer();
-        
-        // Create a temporary audio element for immediate playback
-        console.log(`Creating temporary audio element for file ${index + 1}`);
-        const tempAudio = new Audio();
-        tempAudio.src = URL.createObjectURL(new Blob([arrayBuffer]));
-        
-        window.tempAudioElements[index] = tempAudio;
-        window.audioLoadStatus[index] = 'basic-ready';
-        
-        // Decode the array buffer into an AudioBuffer
-        console.log(`Decoding audio buffer for file ${index + 1}`);
-        const audioBuffer = await audioManager.decodeAudioData(arrayBuffer);
-        window.audioBuffers[index] = audioBuffer;
-        console.log(`Successfully loaded and decoded file ${index + 1}`);
-        
-        return { index, success: true };
-      } catch (error) {
-        console.error(`Error loading audio file ${url}:`, error);
-        window.audioLoadStatus[index] = 'error';
-        return { index, success: false, error };
-      }
-    });
-    
-    console.log('Waiting for all audio files to load...');
-    const results = await Promise.all(loadPromises);
-    const failedLoads = results.filter(r => !r.success);
-    
-    if (failedLoads.length > 0) {
-      console.warn('Some audio files failed to load:', failedLoads);
-    }
-    
-    console.log('Audio file loading complete');
-    return results;
-  } catch (error) {
-    console.error('Error loading audio files:', error);
-    console.error('Error stack:', error.stack);
-    throw error;
-  }
-}
+// Initialize audio files
+const audioFiles = [
+  '01.m4a', '02.m4a', '03.m4a', '04.m4a', '05.m4a',
+  '06.m4a', '07.m4a', '08.m4a', '09.m4a'
+];
 
 // 1. Session & Socket Setup
 // Get session ID from URL params or generate random one
@@ -107,8 +48,6 @@ let boxPositionsFromServer = null;
 let boxes = [];
 let syncEnabled = true;
 let boxesCreated = false;
-let audioFiles = [];
-const UPDATE_INTERVAL = 1000 / 30; // 30 FPS for smooth updates
 
 // Debug: Log all available Native Web Audio effects
 console.log("Available Native Effects:", Object.keys(nativeEffects));
@@ -130,18 +69,7 @@ const boxColors = [
 ];
 
 // Create boxes immediately
-// First ensure audio context is initialized
-// createBoxes();  // Remove this line
 createSessionDisplay();
-boxesCreated = true;
-
-// Then start loading audio files
-setTimeout(async () => {
-  await loadAudioFiles();
-  if (!boxesCreated) {  // Only create boxes if they haven't been created yet
-    createBoxes();
-  }
-}, 100);
 
 // Create session display
 function createSessionDisplay() {
@@ -249,126 +177,56 @@ function createBoxes() {
   audioFiles.forEach((file, index) => {
     const box = new Box(index, audioManager, isSafari, audioFiles);
     boxes[index] = box;
+    
+    // Apply any saved positions from server
+    if (boxPositionsFromServer && boxPositionsFromServer[index]) {
+      box.updateFromServer(boxPositionsFromServer[index]);
+    }
   });
-  
-  // Apply any positions received from server
-  if (boxPositionsFromServer) {
-    boxPositionsFromServer.forEach((pos, index) => {
-      if (boxes[index]) {
-        boxes[index].element.style.left = pos.x + 'px';
-        boxes[index].element.style.top = pos.y + 'px';
-        
-        // Check if inside table and play/stop audio
-        boxes[index].checkBoxPosition();
-      }
-    });
-  }
-  
-  // Log how many boxes were created
-  console.log(`Created ${boxes.length} boxes`);
-  
-  // Add a small delay and recheck visibility of all boxes
-  setTimeout(() => {
-    boxes.forEach((box, index) => {
-      if (box && !box.element.isConnected) {
-        console.error(`Box ${index+1} is not connected to DOM, recreating`);
-        document.body.appendChild(box.element);
-      }
-    });
-  }, 500);
 }
 
-// Function to send box updates to server
 function sendBoxUpdate(update) {
   if (!syncEnabled) return;
   
-  // Get current position
-  const box = update.box || this;
-  const rect = box.element.getBoundingClientRect();
-  
-  // Create update object
-  const boxUpdate = {
-    boxId: boxes.indexOf(box),
-    newX: rect.left,
-    newY: rect.top,
+  socket.emit('boxUpdated', {
+    sessionId,
     ...update
-  };
-  
-  // Send to server
-  socket.emit('boxUpdated', boxUpdate);
+  });
 }
 
-// Load audio files and create boxes
 async function initializeApp() {
   try {
-    console.log('Starting app initialization...');
+    // Initialize audio context
+    await audioManager.initialize();
     
-    // Initialize audio files first (without waiting for audio context)
-    console.log('Initializing audio files...');
-    audioFiles = [
-      '01.m4a', '02.m4a', '03.m4a', '04.m4a', '05.m4a',
-      '06.m4a', '07.m4a', '08.m4a', '09.m4a'
-    ];
-    console.log('Audio files initialized');
-    
-    // Create boxes immediately
-    console.log('Creating boxes...');
+    // Create boxes
     createBoxes();
-    console.log('Boxes created, checking visibility...');
+    boxesCreated = true;
     
-    // Apply Safari-specific rendering fix immediately
-    if (navigator.userAgent.indexOf('Safari') !== -1 && navigator.userAgent.indexOf('Chrome') === -1) {
-      console.log('Safari detected, applying special box rendering fix');
-      const boxes = document.querySelectorAll('.box');
-      console.log(`Found ${boxes.length} boxes to fix`);
+    // Start update loop
+    setInterval(() => {
+      if (!syncEnabled) return;
       
-      for (const [index, box] of boxes.entries()) {
-        console.log(`Fixing box ${index + 1}`);
-        // Force repaint
-        box.style.display = 'none';
-        box.style.display = 'flex';
-        console.log(`Box ${index + 1} fixed`);
-      }
-    }
-    
-    // Initialize audio context and load buffers in the background
-    console.log('Starting audio initialization...');
-    try {
-      await initializeAudio();
-    } catch (error) {
-      console.warn('Audio initialization failed:', error);
-    }
-    
-    console.log('App initialization complete');
+      boxes.forEach((box, index) => {
+        if (!box) return;
+        
+        const boxElement = box.element;
+        const rect = boxElement.getBoundingClientRect();
+        
+        sendBoxUpdate({
+          boxId: index,
+          newX: rect.left,
+          newY: rect.top,
+          effect: box.effectSelect.value,
+          mixValue: box.mixSlider.value / 100,
+          volume: box.volumeSlider.value / 100
+        });
+      });
+    }, UPDATE_INTERVAL);
   } catch (error) {
     console.error('Error initializing app:', error);
-    console.error('Error stack:', error.stack);
   }
 }
 
-async function initializeAudio() {
-  try {
-    // Initialize audio context
-    console.log('Initializing audio context...');
-    await audioManager.initialize();
-    console.log('Audio context initialized, state:', audioManager.getState());
-    
-    // Load audio files and buffers
-    console.log('Loading audio files...');
-    await loadAudioFiles();
-    console.log('Audio files loaded successfully');
-    
-    // Update all boxes to use the new audio context
-    for (const box of boxes) {
-      if (box.updateAudioContext) {
-        await box.updateAudioContext();
-      }
-    }
-  } catch (error) {
-    console.warn('Error initializing audio:', error);
-    throw error;
-  }
-}
-
-// Start the app
+// Initialize the app
 initializeApp();
