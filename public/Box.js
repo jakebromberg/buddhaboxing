@@ -35,8 +35,9 @@ export class Box {
         this.element.style.opacity = '1';
         this.element.style.zIndex = '1';
 
-        // Add explicit transition styles
-        this.element.style.transition = 'height 0.3s ease, opacity 0.3s ease';
+        // Add explicit transition styles including transform
+        this.element.style.transition = 'height 0.3s ease, opacity 0.3s ease, transform 0.2s ease';
+        this.element.style.transform = 'scale(1)';
         this.element.style.overflow = 'hidden';
         this.element.style.height = '40px';
         this.element.style.position = 'absolute';
@@ -160,7 +161,12 @@ export class Box {
             this.checkBoxPosition();
         }, 100);
 
-        // Drag event listeners
+        // Track touch start time for distinguishing taps from drags
+        let touchStartTime = 0;
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+        // Drag event listeners for mouse
         this.element.addEventListener('mousedown', (e) => {
             this.handleDragStart(e);
         });
@@ -177,19 +183,48 @@ export class Box {
             }
         });
 
-        // Click handler - only handle if we haven't dragged
+        // Click handler for mouse
         this.element.addEventListener('click', (e) => {
-            // Don't handle click if it was on a control element
-            if (e.target === this.effectSelect ||
-                e.target === this.mixSlider ||
-                e.target === this.volumeSlider ||
-                e.target.closest('select') ||
-                e.target.closest('input')) {
-                return;
-            }
-
-            if (!this.isDragging && !this.hasDragged) {
+            if (!this.hasDragged) {
                 this.handleBoxClick(e);
+            }
+        });
+
+        // Touch event listeners with tap support
+        this.element.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent scrolling
+            const touch = e.touches[0];
+            touchStartTime = Date.now();
+            touchStartX = touch.clientX;
+            touchStartY = touch.clientY;
+            this.handleDragStart(touch);
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (this.isDragging) {
+                e.preventDefault(); // Prevent scrolling
+                const touch = e.touches[0];
+                // Calculate distance moved
+                const deltaX = Math.abs(touch.clientX - touchStartX);
+                const deltaY = Math.abs(touch.clientY - touchStartY);
+                // If moved more than 10px, consider it a drag
+                if (deltaX > 10 || deltaY > 10) {
+                    this.hasDragged = true;
+                }
+                this.handleDragMove(touch, debouncedCheckPosition);
+            }
+        });
+
+        document.addEventListener('touchend', (e) => {
+            const touchEndTime = Date.now();
+            const touchDuration = touchEndTime - touchStartTime;
+            
+            if (this.isDragging) {
+                this.handleDragEnd(debouncedCheckPosition);
+                // If touch duration was short and we didn't move much, treat as tap
+                if (touchDuration < 200 && !this.hasDragged) {
+                    this.handleBoxClick(e);
+                }
             }
         });
 
@@ -292,13 +327,19 @@ export class Box {
         this.isDragging = true;
         this.hasDragged = false;
         
+        // Scale up the box when dragging starts
+        this.element.style.transform = 'scale(1.1)';
+        this.element.style.zIndex = '1000'; // Bring to front while dragging
+        
         // Get current position from style (or default to current offset if not set)
         const currentLeft = this.element.style.left ? parseInt(this.element.style.left) : this.element.offsetLeft;
         const currentTop = this.element.style.top ? parseInt(this.element.style.top) : this.element.offsetTop;
         
-        // Calculate offset from mouse position to element edge
-        this.startX = e.clientX - currentLeft;
-        this.startY = e.clientY - currentTop;
+        // Calculate offset from mouse/touch position to element edge
+        const clientX = e.clientX || e.pageX;
+        const clientY = e.clientY || e.pageY;
+        this.startX = clientX - currentLeft;
+        this.startY = clientY - currentTop;
 
         // Store initial position for drag detection
         this.initialX = currentLeft;
@@ -316,11 +357,11 @@ export class Box {
     handleDragMove(e, debouncedCheckPosition) {
         if (!this.isDragging) return;
 
-        e.preventDefault();
-
         // Calculate new position by subtracting the initial mouse offset
-        const newX = e.clientX - this.startX;
-        const newY = e.clientY - this.startY;
+        const clientX = e.clientX || e.pageX;
+        const clientY = e.clientY || e.pageY;
+        const newX = clientX - this.startX;
+        const newY = clientY - this.startY;
 
         // Update element position
         this.element.style.left = `${newX}px`;
@@ -368,6 +409,10 @@ export class Box {
             hasDragged: this.hasDragged,
         });
         if (this.isDragging) {
+            // Reset scale and z-index when dragging ends
+            this.element.style.transform = 'scale(1)';
+            this.element.style.zIndex = '1';
+            
             // Only check position if we actually dragged
             if (this.hasDragged) {
                 debouncedCheckPosition();

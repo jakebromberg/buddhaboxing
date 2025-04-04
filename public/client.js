@@ -200,12 +200,38 @@ function createSessionDisplay() {
   urlDisplay.title = 'Click to copy';
   
   // Click to copy functionality
-  urlDisplay.onclick = () => {
-    navigator.clipboard.writeText(shareUrl);
-    urlDisplay.textContent = 'URL copied!';
-    setTimeout(() => {
-      urlDisplay.textContent = shareUrl;
-    }, 2000);
+  urlDisplay.onclick = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        urlDisplay.textContent = 'URL copied!';
+      } else {
+        // Fallback for browsers that don't support clipboard API
+        const textArea = document.createElement('textarea');
+        textArea.value = shareUrl;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand('copy');
+          urlDisplay.textContent = 'URL copied!';
+        } catch (err) {
+          urlDisplay.textContent = 'Press Ctrl+C to copy';
+          console.error('Fallback copy failed:', err);
+        }
+        document.body.removeChild(textArea);
+      }
+      setTimeout(() => {
+        urlDisplay.textContent = shareUrl;
+      }, 2000);
+    } catch (err) {
+      console.error('Copy failed:', err);
+      urlDisplay.textContent = 'Press Ctrl+C to copy';
+      setTimeout(() => {
+        urlDisplay.textContent = shareUrl;
+      }, 2000);
+    }
   };
   sessionDisplay.appendChild(urlDisplay);
   
