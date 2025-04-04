@@ -179,16 +179,41 @@ export class Box {
 
         // Click handler - only handle if we haven't dragged
         this.element.addEventListener('click', (e) => {
+            // Don't handle click if it was on a control element
+            if (e.target === this.effectSelect ||
+                e.target === this.mixSlider ||
+                e.target === this.volumeSlider ||
+                e.target.closest('select') ||
+                e.target.closest('input')) {
+                return;
+            }
+
             if (!this.isDragging && !this.hasDragged) {
                 this.handleBoxClick(e);
             }
         });
 
-        // Slider event listeners
-        this.mixSlider.addEventListener('mousedown', (e) => e.stopPropagation());
-        this.volumeSlider.addEventListener('mousedown', (e) => e.stopPropagation());
+        // Slider event listeners with improved handling
+        const handleSliderInteraction = (e) => {
+            e.stopPropagation();
+            // Prevent the box from being draggable while interacting with sliders
+            this.isDragging = false;
+            this.hasDragged = false;
+        };
+
+        // Add event listeners for all slider interactions
+        [this.mixSlider, this.volumeSlider].forEach(slider => {
+            if (slider) {
+                slider.addEventListener('mousedown', handleSliderInteraction);
+                slider.addEventListener('touchstart', handleSliderInteraction);
+                slider.addEventListener('click', handleSliderInteraction);
+            }
+        });
 
         // Effect selection handler
+        this.effectSelect.addEventListener('mousedown', handleSliderInteraction);
+        this.effectSelect.addEventListener('touchstart', handleSliderInteraction);
+        this.effectSelect.addEventListener('click', handleSliderInteraction);
         this.effectSelect.addEventListener('change', (e) => this.handleEffectChange(e));
 
         // Mix control
@@ -355,9 +380,13 @@ export class Box {
                 }
             }
 
-            // Reset drag state immediately
+            // Reset isDragging immediately
             this.isDragging = false;
-            this.hasDragged = false;
+            
+            // Reset hasDragged after a short delay to ensure click handler sees the correct state
+            setTimeout(() => {
+                this.hasDragged = false;
+            }, 0);
         }
     }
 
@@ -368,6 +397,8 @@ export class Box {
             target: e.target,
             targetType: e.target.tagName,
             targetClass: e.target.classList,
+            hasEffect: this.effectSelect.value !== 'none',
+            isExpanded: this.element.classList.contains('expanded')
         });
 
         // Don't handle click if we're dragging or if we just dragged
@@ -381,7 +412,8 @@ export class Box {
             e.target === this.mixSlider ||
             e.target === this.volumeSlider ||
             e.target.closest('select') ||
-            e.target.closest('input')) {
+            e.target.closest('input') ||
+            e.target.closest('.controls-container')) {
             console.log('Box click ignored - control element clicked');
             return;
         }
@@ -390,36 +422,50 @@ export class Box {
         const isExpanded = this.element.classList.contains('expanded');
         this.element.classList.toggle('expanded');
 
-        // Log the current state of the box
-        console.log('Box state before expansion:', {
-            isExpanded: !isExpanded,
-            currentHeight: this.element.style.height,
-            hasExpandedClass: this.element.classList.contains('expanded'),
-            computedHeight: window.getComputedStyle(this.element).height,
-            controlsOpacity: this.element.querySelector('.controls-container')?.style.opacity
-        });
-
         // Update controls visibility
         const controlsContainer = this.element.querySelector('.controls-container');
         if (controlsContainer) {
             controlsContainer.style.opacity = isExpanded ? '0' : '1';
-            console.log('Controls container opacity updated:', {
-                newOpacity: controlsContainer.style.opacity,
-                isExpanded: !isExpanded
+        }
+
+        // Always adjust box size based on current effect
+        const currentEffect = this.effectSelect.value;
+        this.adjustBoxSize(currentEffect);
+
+        // If we have an effect, ensure controls are visible when expanded
+        if (currentEffect !== 'none' && !isExpanded) {
+            if (this.paramContainer) {
+                this.paramContainer.style.display = 'block';
+                this.paramLabel.style.display = 'block';
+            }
+            if (this.mixLabel) {
+                this.mixLabel.style.display = 'block';
+                this.mixSlider.style.display = 'block';
+            }
+        }
+
+        // Send state update to sync expansion state
+        if (this.sendBoxUpdate) {
+            const currentX = parseInt(this.element.style.left);
+            const currentY = parseInt(this.element.style.top);
+            
+            this.sendBoxUpdate({
+                boxId: this.index,
+                newX: currentX,
+                newY: currentY,
+                effect: this.effectSelect.value,
+                mixValue: this.mixSlider.value / 100,
+                volume: this.volumeSlider.value / 100,
+                isExpanded: !isExpanded  // Send the new expansion state
             });
         }
 
-        // Adjust box size based on current effect
-        const currentEffect = this.effectSelect ? this.effectSelect.value : 'none';
-        this.adjustBoxSize(currentEffect);
-
-        // Log the final state
-        console.log('Box state after expansion:', {
-            isExpanded: !isExpanded,
+        console.log('Box click handled:', {
+            wasExpanded: isExpanded,
+            isNowExpanded: this.element.classList.contains('expanded'),
+            effect: currentEffect,
             newHeight: this.element.style.height,
-            hasExpandedClass: this.element.classList.contains('expanded'),
-            computedHeight: window.getComputedStyle(this.element).height,
-            controlsOpacity: this.element.querySelector('.controls-container')?.style.opacity
+            controlsOpacity: controlsContainer?.style.opacity
         });
     }
 
@@ -444,7 +490,8 @@ export class Box {
                 newY: currentY,
                 effect: effectName,
                 mixValue: this.mixSlider.value / 100,
-                volume: this.volumeSlider.value / 100
+                volume: this.volumeSlider.value / 100,
+                isExpanded: this.element.classList.contains('expanded')
             });
         }
 
@@ -467,6 +514,19 @@ export class Box {
                     this.mixLabel.style.display = 'block';
                     this.mixSlider.style.display = 'block';
                 }
+
+                // Send another update after expansion is complete
+                if (this.sendBoxUpdate) {
+                    this.sendBoxUpdate({
+                        boxId: this.index,
+                        newX: currentX,
+                        newY: currentY,
+                        effect: effectName,
+                        mixValue: this.mixSlider.value / 100,
+                        volume: this.volumeSlider.value / 100,
+                        isExpanded: true
+                    });
+                }
             } else {
                 // Hide controls when 'none' is selected
                 this.element.classList.remove('expanded');
@@ -482,6 +542,19 @@ export class Box {
                     this.mixSlider.style.display = 'none';
                 }
                 this.element.style.height = '40px';
+
+                // Send another update after collapse is complete
+                if (this.sendBoxUpdate) {
+                    this.sendBoxUpdate({
+                        boxId: this.index,
+                        newX: currentX,
+                        newY: currentY,
+                        effect: effectName,
+                        mixValue: this.mixSlider.value / 100,
+                        volume: this.volumeSlider.value / 100,
+                        isExpanded: false
+                    });
+                }
             }
         } catch (error) {
             console.error(`Failed to create effect ${effectName}:`, error);
@@ -512,7 +585,8 @@ export class Box {
                 newY: currentY,
                 effect: this.effectSelect.value,
                 mixValue: mixValue,
-                volume: this.volumeSlider.value / 100
+                volume: this.volumeSlider.value / 100,
+                isExpanded: this.element.classList.contains('expanded')
             });
         }
 
@@ -542,7 +616,8 @@ export class Box {
                 newY: currentY,
                 effect: this.effectSelect.value,
                 mixValue: this.mixSlider.value / 100,
-                volume: volume
+                volume: volume,
+                isExpanded: this.element.classList.contains('expanded')
             });
         }
 
@@ -911,41 +986,112 @@ export class Box {
         this.state.stopAudio();
     }
 
-    updateFromServer({ newX, newY, effect, mixValue, volume }) {
+    updateFromServer({ newX, newY, effect, mixValue, volume, isExpanded }) {
+        console.log('Received server update:', {
+            newX, newY, effect, mixValue, volume, isExpanded,
+            currentEffect: this.effectSelect.value,
+            currentlyExpanded: this.element.classList.contains('expanded')
+        });
+
+        let needsSizeAdjustment = false;
+
         // Update position (if provided)
         if (newX !== undefined && newY !== undefined) {
             this.element.style.left = newX + 'px';
             this.element.style.top = newY + 'px';
-
-            // Check if inside table and play/stop audio
             this.checkBoxPosition();
+        }
+
+        // Handle expansion state first
+        if (isExpanded !== undefined) {
+            const currentlyExpanded = this.element.classList.contains('expanded');
+            if (currentlyExpanded !== isExpanded) {
+                console.log('Updating expansion state:', { wasExpanded: currentlyExpanded, willBeExpanded: isExpanded });
+                this.element.classList.toggle('expanded');
+                const controlsContainer = this.element.querySelector('.controls-container');
+                if (controlsContainer) {
+                    controlsContainer.style.opacity = isExpanded ? '1' : '0';
+                }
+                needsSizeAdjustment = true;
+            }
         }
 
         // Update effect (if provided)
         if (effect !== undefined && this.effectSelect) {
-            this.effectSelect.value = effect;
+            // Only update if the effect has changed
+            if (this.effectSelect.value !== effect) {
+                this.effectSelect.value = effect;
+                needsSizeAdjustment = true;
 
-            // Trigger the change event to apply the effect
-            const changeEvent = new Event('change');
-            this.effectSelect.dispatchEvent(changeEvent);
+                if (effect !== 'none') {
+                    const initializeEffect = async () => {
+                        try {
+                            if (!this.audioManager.isReady()) {
+                                await this.audioManager.initialize();
+                            }
+                            this.state.cleanupEffect();
+                            await this.state.setupEffect(effect, { [effect]: (audioCtx) => createEffect(effect, audioCtx) }, this.createParamSliders.bind(this), this.element);
+                            
+                            // Update control visibility after effect is initialized
+                            if (this.state.effectInstance) {
+                                const shouldShow = this.element.classList.contains('expanded');
+                                if (this.paramContainer) {
+                                    this.paramContainer.style.display = shouldShow ? 'block' : 'none';
+                                    this.paramLabel.style.display = shouldShow ? 'block' : 'none';
+                                }
+                                if (this.mixLabel) {
+                                    this.mixLabel.style.display = shouldShow ? 'block' : 'none';
+                                    this.mixSlider.style.display = shouldShow ? 'block' : 'none';
+                                }
+                                // Force size adjustment after effect initialization
+                                this.adjustBoxSize(effect);
+                            }
+                        } catch (error) {
+                            console.error(`Failed to initialize effect ${effect}:`, error);
+                        }
+                    };
+
+                    initializeEffect();
+                } else {
+                    this.state.cleanupEffect();
+                    if (this.paramContainer) {
+                        this.paramContainer.style.display = 'none';
+                        this.paramLabel.style.display = 'none';
+                    }
+                    if (this.mixLabel) {
+                        this.mixLabel.style.display = 'none';
+                        this.mixSlider.style.display = 'none';
+                    }
+                }
+            }
         }
 
         // Update mix value (if provided)
         if (mixValue !== undefined && this.mixSlider) {
             this.mixSlider.value = mixValue * 100;
-
-            // Trigger the input event to apply the mix
-            const inputEvent = new Event('input');
-            this.mixSlider.dispatchEvent(inputEvent);
+            if (this.state.effectInstance) {
+                const inputEvent = new Event('input');
+                this.mixSlider.dispatchEvent(inputEvent);
+            }
         }
 
         // Update volume (if provided)
         if (volume !== undefined && this.volumeSlider) {
             this.volumeSlider.value = volume * 100;
-
-            // Trigger the input event to apply the volume
             const inputEvent = new Event('input');
             this.volumeSlider.dispatchEvent(inputEvent);
+        }
+
+        // Adjust box size if needed and not waiting for effect initialization
+        if (needsSizeAdjustment && (!effect || effect === 'none')) {
+            const currentEffect = this.effectSelect.value;
+            const isCurrentlyExpanded = this.element.classList.contains('expanded');
+            console.log('Adjusting box size after state update:', {
+                effect: currentEffect,
+                isExpanded: isCurrentlyExpanded,
+                hasEffect: this.state.effectInstance !== null
+            });
+            this.adjustBoxSize(currentEffect);
         }
     }
 } 

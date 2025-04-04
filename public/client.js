@@ -254,7 +254,7 @@ socket.on('boxUpdated', (data) => {
     timestamp: new Date().toISOString()
   });
 
-  const { boxId, newX, newY, effect, mixValue, volume, sessionId: senderSessionId, socketId: senderSocketId } = data;
+  const { boxId, newX, newY, effect, mixValue, volume, isExpanded, sessionId: senderSessionId, socketId: senderSocketId } = data;
 
   if (!syncEnabled || !boxes[boxId]) {
     console.log('Received box update but sync is disabled or box not found:', {
@@ -289,6 +289,7 @@ socket.on('boxUpdated', (data) => {
     effect,
     mixValue,
     volume,
+    isExpanded,
     senderSessionId,
     senderSocketId,
     mySessionId: sessionId,
@@ -304,7 +305,7 @@ socket.on('boxUpdated', (data) => {
   
   try {
     // Update box using the new method
-    box.updateFromServer({ newX, newY, effect, mixValue, volume });
+    box.updateFromServer({ newX, newY, effect, mixValue, volume, isExpanded });
     console.log('Successfully updated box from server:', {
       boxId,
       newX,
@@ -312,6 +313,7 @@ socket.on('boxUpdated', (data) => {
       effect,
       mixValue,
       volume,
+      isExpanded,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -323,6 +325,7 @@ socket.on('boxUpdated', (data) => {
       effect,
       mixValue,
       volume,
+      isExpanded,
       timestamp: new Date().toISOString()
     });
   } finally {
@@ -347,7 +350,16 @@ function createBoxes() {
     
     // Apply any saved positions from server
     if (boxPositionsFromServer && boxPositionsFromServer[index]) {
-      box.updateFromServer(boxPositionsFromServer[index]);
+      const boxState = boxPositionsFromServer[index];
+      // Ensure we pass all state properties, including isExpanded
+      box.updateFromServer({
+        newX: boxState.newX,
+        newY: boxState.newY,
+        effect: boxState.effect,
+        mixValue: boxState.mixValue,
+        volume: boxState.volume,
+        isExpanded: boxState.isExpanded
+      });
     }
   });
 

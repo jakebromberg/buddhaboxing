@@ -156,6 +156,12 @@ export class BoxState {
     if (effectName === 'none') {
       return;
     }
+
+    // Initialize nodes if they haven't been initialized yet
+    if (!this.#gainNode) {
+      this.#initializeNodes();
+      this.setupAudioRouting();
+    }
     
     // Get effect creator
     const effect = availableEffectPresets[effectName];

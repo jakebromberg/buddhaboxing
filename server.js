@@ -99,14 +99,22 @@ io.on('connection', (socket) => {
   
   // Handle box updates
   socket.on('updateBox', (data) => {
-    const { sessionId, boxId, newX, newY, effect, mixValue, volume } = data;
+    // Debug raw data
+    console.log('Raw updateBox data received:', {
+      fullData: JSON.stringify(data),
+      hasIsExpanded: 'isExpanded' in data,
+      isExpandedType: typeof data.isExpanded,
+      isExpandedValue: data.isExpanded
+    });
+    
+    const { sessionId, boxId, newX, newY, effect, mixValue, volume, isExpanded } = data;
     
     console.log('Received box update:', {
       from: socket.id,
       sessionId,
       boxId,
       currentSession,
-      update: { newX, newY, effect, mixValue, volume }
+      update: { newX, newY, effect, mixValue, volume, isExpanded }
     });
     
     // Ignore if no session ID
@@ -141,6 +149,7 @@ io.on('connection', (socket) => {
     box.effect = effect;
     box.mixValue = mixValue;
     box.volume = volume;
+    box.isExpanded = isExpanded;
     
     // Store the updated box
     sessions[sessionId].boxes[boxId] = box;
@@ -156,7 +165,7 @@ io.on('connection', (socket) => {
       boxId,
       roomMembers,
       roomSize: room ? room.size : 0,
-      update: { newX, newY, effect, mixValue, volume },
+      update: { newX, newY, effect, mixValue, volume, isExpanded },
       timestamp: new Date().toISOString()
     });
     
@@ -179,7 +188,18 @@ io.on('connection', (socket) => {
       effect,
       mixValue,
       volume,
+      isExpanded,
       timestamp: new Date().toISOString()
+    }, (error) => {
+      if (error) {
+        console.error('Error broadcasting boxUpdated event:', error);
+      } else {
+        console.log('boxUpdated event acknowledged by recipients', {
+          isExpandedSent: isExpanded !== undefined,
+          isExpandedValue: isExpanded,
+          timestamp: new Date().toISOString()
+        });
+      }
     });
     
     // Verify broadcast
