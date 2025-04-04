@@ -11,6 +11,9 @@ const audioFiles = [
   '06.m4a', '07.m4a', '08.m4a', '09.m4a'
 ];
 
+// Update interval for syncing box positions
+const UPDATE_INTERVAL = 100; // milliseconds
+
 // 1. Session & Socket Setup
 // Get session ID from URL params or generate random one
 let sessionId;
@@ -30,18 +33,91 @@ console.log(`Safari detected: ${isSafari}`);
 // Connect to Socket.IO
 const socket = io();
 
+// Socket connection logging
+socket.on('connect', () => {
+  console.log('Socket connected:', {
+    id: socket.id,
+    sessionId,
+    connected: socket.connected,
+    timestamp: new Date().toISOString()
+  });
+
+  // Re-join session if we reconnect
+  socket.emit('joinSession', { sessionId });
+});
+
+socket.on('connect_error', (error) => {
+  console.error('Socket connection error:', error);
+});
+
+socket.on('disconnect', (reason) => {
+  console.log('Socket disconnected:', {
+    id: socket.id,
+    sessionId,
+    reason,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Join the specified session/room on the server
-socket.emit('joinSession', sessionId);
+socket.emit('joinSession', { sessionId });
+
+socket.on('joinedSession', (data) => {
+  console.log('Successfully joined session:', {
+    sessionId,
+    socketId: socket.id,
+    data,
+    timestamp: new Date().toISOString()
+  });
+});
+
+socket.on('userJoinedSession', (data) => {
+  console.log('Another user joined the session:', {
+    ...data,
+    mySessionId: sessionId,
+    mySocketId: socket.id,
+    timestamp: new Date().toISOString()
+  });
+});
+
+socket.on('error', (error) => {
+  console.error('Socket error:', {
+    error,
+    sessionId,
+    socketId: socket.id,
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Handle initial state from server
 socket.on('initialState', (data) => {
-  console.log('Got initial state from server:', data);
+  console.log('Got initial state from server:', {
+    ...data,
+    sessionId,
+    socketId: socket.id,
+    timestamp: new Date().toISOString()
+  });
   
   // If we receive box positions, apply them after boxes are created
   if (data.boxes) {
     boxPositionsFromServer = data.boxes;
   }
 });
+
+// Debug socket state
+setInterval(() => {
+  if (socket.connected) {
+    console.log('Socket state check:', {
+      connected: socket.connected,
+      id: socket.id,
+      sessionId,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Re-emit join if needed
+    socket.emit('checkSession', sessionId);
+  }
+}, 5000);
 
 // Tracking variables for multi-user functionality
 let boxPositionsFromServer = null;
@@ -142,14 +218,71 @@ function createSessionDisplay() {
   // Event handler for sync toggle
   syncToggle.addEventListener('change', (e) => {
     syncEnabled = e.target.checked;
+    console.log('Sync status changed:', {
+      enabled: syncEnabled,
+      sessionId,
+      socketId: socket.id,
+      socketConnected: socket.connected,
+      timestamp: new Date().toISOString()
+    });
   });
   
   body.appendChild(sessionDisplay);
 }
 
 // Receive box updates from other clients
-socket.on('boxUpdated', ({ boxId, newX, newY, effect, mixValue, volume }) => {
-  if (!syncEnabled || !boxes[boxId]) return;
+socket.on('boxUpdated', (data) => {
+  console.log('Raw box update received:', {
+    data,
+    mySessionId: sessionId,
+    mySocketId: socket.id,
+    syncEnabled,
+    socketConnected: socket.connected,
+    socketEventRegistered: true,
+    timestamp: new Date().toISOString()
+  });
+
+  const { boxId, newX, newY, effect, mixValue, volume, sessionId: senderSessionId, socketId: senderSocketId } = data;
+
+  if (!syncEnabled || !boxes[boxId]) {
+    console.log('Received box update but sync is disabled or box not found:', {
+      syncEnabled,
+      boxExists: !!boxes[boxId],
+      boxId,
+      senderSessionId,
+      senderSocketId,
+      mySessionId: sessionId,
+      mySocketId: socket.id,
+      socketConnected: socket.connected,
+      socketEventRegistered: true,
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+  
+  // Skip updates from our own socket
+  if (senderSocketId === socket.id) {
+    console.log('Skipping update from our own socket:', {
+      senderSocketId,
+      mySocketId: socket.id,
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+  
+  console.log('Processing box update from another client:', {
+    boxId,
+    newX,
+    newY,
+    effect,
+    mixValue,
+    volume,
+    senderSessionId,
+    senderSocketId,
+    mySessionId: sessionId,
+    mySocketId: socket.id,
+    timestamp: new Date().toISOString()
+  });
   
   const box = boxes[boxId];
   
@@ -157,11 +290,33 @@ socket.on('boxUpdated', ({ boxId, newX, newY, effect, mixValue, volume }) => {
   const oldSync = syncEnabled;
   syncEnabled = false;
   
-  // Update box using the new method
-  box.updateFromServer({ newX, newY, effect, mixValue, volume });
-  
-  // Re-enable syncing
-  syncEnabled = oldSync;
+  try {
+    // Update box using the new method
+    box.updateFromServer({ newX, newY, effect, mixValue, volume });
+    console.log('Successfully updated box from server:', {
+      boxId,
+      newX,
+      newY,
+      effect,
+      mixValue,
+      volume,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Failed to update box from server:', {
+      error,
+      boxId,
+      newX,
+      newY,
+      effect,
+      mixValue,
+      volume,
+      timestamp: new Date().toISOString()
+    });
+  } finally {
+    // Re-enable syncing
+    syncEnabled = oldSync;
+  }
 });
 
 function createBoxes() {
@@ -175,7 +330,7 @@ function createBoxes() {
   
   // Create a box for each audio file
   audioFiles.forEach((file, index) => {
-    const box = new Box(index, audioManager, isSafari, audioFiles);
+    const box = new Box(index, audioManager, isSafari, audioFiles, sendBoxUpdate);
     boxes[index] = box;
     
     // Apply any saved positions from server
@@ -186,11 +341,53 @@ function createBoxes() {
 }
 
 function sendBoxUpdate(update) {
-  if (!syncEnabled) return;
+  if (!syncEnabled) {
+    console.log('Box update not sent - sync disabled:', {
+      sessionId,
+      socketId: socket.id,
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
   
-  socket.emit('boxUpdated', {
+  if (!socket.connected) {
+    console.error('Cannot send update - socket not connected:', {
+      sessionId,
+      socketId: socket.id,
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+  
+  const updateData = {
     sessionId,
-    ...update
+    socketId: socket.id,
+    ...update,
+    timestamp: new Date().toISOString()
+  };
+  
+  console.log('Sending box update to other clients:', {
+    ...updateData
+  });
+  
+  // Send with acknowledgment
+  socket.emit('updateBox', updateData, (error) => {
+    if (error) {
+      console.error('Failed to send box update:', {
+        error,
+        updateData,
+        sessionId,
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.log('Box update confirmed by server:', {
+        updateData,
+        sessionId,
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
+      });
+    }
   });
 }
 
@@ -202,27 +399,6 @@ async function initializeApp() {
     // Create boxes
     createBoxes();
     boxesCreated = true;
-    
-    // Start update loop
-    setInterval(() => {
-      if (!syncEnabled) return;
-      
-      boxes.forEach((box, index) => {
-        if (!box) return;
-        
-        const boxElement = box.element;
-        const rect = boxElement.getBoundingClientRect();
-        
-        sendBoxUpdate({
-          boxId: index,
-          newX: rect.left,
-          newY: rect.top,
-          effect: box.effectSelect.value,
-          mixValue: box.mixSlider.value / 100,
-          volume: box.volumeSlider.value / 100
-        });
-      });
-    }, UPDATE_INTERVAL);
   } catch (error) {
     console.error('Error initializing app:', error);
   }
@@ -230,3 +406,13 @@ async function initializeApp() {
 
 // Initialize the app
 initializeApp();
+
+// Add event registration confirmation
+console.log('Socket event handlers registered:', {
+  events: ['boxUpdated', 'connect', 'connect_error', 'disconnect', 'joinedSession', 'userJoinedSession', 'error', 'initialState'],
+  syncEnabled,
+  socketConnected: socket.connected,
+  socketId: socket.id,
+  sessionId,
+  timestamp: new Date().toISOString()
+});

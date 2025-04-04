@@ -3,11 +3,12 @@ import { BoxState } from './boxState.js';
 import { createEffect } from './nativeEffects.js';
 
 export class Box {
-    constructor(index, audioManager, isSafari, audioFiles) {
+    constructor(index, audioManager, isSafari, audioFiles, onBoxUpdate) {
         this.index = index;
         this.audioManager = audioManager;
         this.isSafari = isSafari;
         this.audioFiles = audioFiles;
+        this.sendBoxUpdate = onBoxUpdate;  // Rename to be more explicit
         this.isDragging = false;
         this.hasDragged = false;
         this.startX = 0;
@@ -159,24 +160,13 @@ export class Box {
             this.checkBoxPosition();
         }, 100);
 
-        // Track if we're dragging
-        let isDragging = false;
-        let startX, startY;
-
         // Drag event listeners
         this.element.addEventListener('mousedown', (e) => {
-            isDragging = false;
-            startX = e.clientX;
-            startY = e.clientY;
             this.handleDragStart(e);
         });
 
         document.addEventListener('mousemove', (e) => {
             if (this.isDragging) {
-                // If we've moved more than a few pixels, consider it a drag
-                if (!isDragging && (Math.abs(e.clientX - startX) > 5 || Math.abs(e.clientY - startY) > 5)) {
-                    isDragging = true;
-                }
                 this.handleDragMove(e, debouncedCheckPosition);
             }
         });
@@ -189,7 +179,7 @@ export class Box {
 
         // Click handler - only handle if we haven't dragged
         this.element.addEventListener('click', (e) => {
-            if (!isDragging) {
+            if (!this.isDragging && !this.hasDragged) {
                 this.handleBoxClick(e);
             }
         });
@@ -276,10 +266,18 @@ export class Box {
 
         this.isDragging = true;
         this.hasDragged = false;
-        this.startX = e.clientX - this.element.offsetLeft;
-        this.startY = e.clientY - this.element.offsetTop;
-        this.initialX = this.element.offsetLeft;
-        this.initialY = this.element.offsetTop;
+        
+        // Get current position from style (or default to current offset if not set)
+        const currentLeft = this.element.style.left ? parseInt(this.element.style.left) : this.element.offsetLeft;
+        const currentTop = this.element.style.top ? parseInt(this.element.style.top) : this.element.offsetTop;
+        
+        // Calculate offset from mouse position to element edge
+        this.startX = e.clientX - currentLeft;
+        this.startY = e.clientY - currentTop;
+
+        // Store initial position for drag detection
+        this.initialX = currentLeft;
+        this.initialY = currentTop;
 
         // Try to initialize audio context when dragging starts
         if (!this.audioManager.isReady()) {
@@ -288,25 +286,55 @@ export class Box {
                 console.warn('Audio initialization failed during drag:', error);
             });
         }
-
-        this.updateBoxPosition();
     }
 
     handleDragMove(e, debouncedCheckPosition) {
         if (!this.isDragging) return;
 
         e.preventDefault();
+
+        // Calculate new position by subtracting the initial mouse offset
         const newX = e.clientX - this.startX;
         const newY = e.clientY - this.startY;
 
-        // Only mark as dragged if we've moved more than 5 pixels
-        if (Math.abs(newX - this.initialX) > 5 || Math.abs(newY - this.initialY) > 5) {
-            this.hasDragged = true;
-            debouncedCheckPosition();
-        }
-
+        // Update element position
         this.element.style.left = `${newX}px`;
         this.element.style.top = `${newY}px`;
+
+        // Check if we've moved enough to count as a drag
+        if (!this.hasDragged && (Math.abs(newX - this.initialX) > 5 || Math.abs(newY - this.initialY) > 5)) {
+            this.hasDragged = true;
+        }
+
+        // Send position update
+        if (this.sendBoxUpdate) {
+            console.log('Box sending update:', {
+                boxId: this.index,
+                newX: newX,
+                newY: newY,
+                effect: this.effectSelect.value,
+                mixValue: this.mixSlider.value / 100,
+                volume: this.volumeSlider.value / 100,
+                timestamp: new Date().toISOString()
+            });
+            
+            this.sendBoxUpdate({
+                boxId: this.index,
+                newX: newX,
+                newY: newY,
+                effect: this.effectSelect.value,
+                mixValue: this.mixSlider.value / 100,
+                volume: this.volumeSlider.value / 100
+            });
+        } else {
+            console.warn('Box update function not available:', {
+                boxId: this.index,
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        // Check if box is in playable area
+        debouncedCheckPosition();
     }
 
     handleDragEnd(debouncedCheckPosition) {
@@ -397,6 +425,28 @@ export class Box {
 
     handleEffectChange(e) {
         const effectName = this.effectSelect.value;
+        
+        // Send effect update
+        if (this.sendBoxUpdate) {
+            console.log('Box sending effect update:', {
+                boxId: this.index,
+                effect: effectName,
+                timestamp: new Date().toISOString()
+            });
+            
+            // Get current position from style
+            const currentX = parseInt(this.element.style.left);
+            const currentY = parseInt(this.element.style.top);
+            
+            this.sendBoxUpdate({
+                boxId: this.index,
+                newX: currentX,
+                newY: currentY,
+                effect: effectName,
+                mixValue: this.mixSlider.value / 100,
+                volume: this.volumeSlider.value / 100
+            });
+        }
 
         try {
             this.state.cleanupEffect();
@@ -442,7 +492,29 @@ export class Box {
     }
 
     handleMixChange(e) {
-        const mixValue = this.mixSlider.value / 100;
+        const mixValue = e.target.value / 100;
+        
+        // Send mix update
+        if (this.sendBoxUpdate) {
+            console.log('Box sending mix update:', {
+                boxId: this.index,
+                mixValue,
+                timestamp: new Date().toISOString()
+            });
+            
+            // Get current position from style
+            const currentX = parseInt(this.element.style.left);
+            const currentY = parseInt(this.element.style.top);
+            
+            this.sendBoxUpdate({
+                boxId: this.index,
+                newX: currentX,
+                newY: currentY,
+                effect: this.effectSelect.value,
+                mixValue: mixValue,
+                volume: this.volumeSlider.value / 100
+            });
+        }
 
         if (this.effectSelect.value !== 'none') {
             this.state.applyMix(mixValue);
@@ -450,7 +522,30 @@ export class Box {
     }
 
     handleVolumeChange(e) {
-        const volume = this.volumeSlider.value / 100;
+        const volume = e.target.value / 100;
+        
+        // Send volume update
+        if (this.sendBoxUpdate) {
+            console.log('Box sending volume update:', {
+                boxId: this.index,
+                volume,
+                timestamp: new Date().toISOString()
+            });
+            
+            // Get current position from style
+            const currentX = parseInt(this.element.style.left);
+            const currentY = parseInt(this.element.style.top);
+            
+            this.sendBoxUpdate({
+                boxId: this.index,
+                newX: currentX,
+                newY: currentY,
+                effect: this.effectSelect.value,
+                mixValue: this.mixSlider.value / 100,
+                volume: volume
+            });
+        }
+
         this.state.setVolume(volume);
     }
 

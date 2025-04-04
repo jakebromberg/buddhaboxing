@@ -44,38 +44,88 @@ io.on('connection', (socket) => {
   let currentSession = null;
   
   // Join a session
-  socket.on('joinSession', (sessionId) => {
-    console.log(`Client ${socket.id} joining session: ${sessionId}`);
-    
-    // Leave any current session
+  socket.on('joinSession', ({ sessionId }) => {
+    console.log('Client joining session:', {
+      socketId: socket.id,
+      sessionId,
+      previousSession: currentSession,
+      timestamp: new Date().toISOString()
+    });
+
+    // Leave previous session if any
     if (currentSession) {
       socket.leave(currentSession);
+      console.log('Left previous session:', {
+        socketId: socket.id,
+        previousSession: currentSession,
+        timestamp: new Date().toISOString()
+      });
     }
-    
-    // Join the new session
+
+    // Join new session
     socket.join(sessionId);
     currentSession = sessionId;
-    
-    // Initialize the session if it doesn't exist
+
+    // Get room info
+    const room = io.sockets.adapter.rooms.get(sessionId);
+    console.log('Joined session:', {
+      socketId: socket.id,
+      sessionId,
+      roomSize: room ? room.size : 0,
+      roomMembers: room ? Array.from(room) : [],
+      timestamp: new Date().toISOString()
+    });
+
+    // Initialize session if needed
     if (!sessions[sessionId]) {
-      sessions[sessionId] = {
-        boxes: []
-      };
+      sessions[sessionId] = { boxes: [] };
     }
-    
-    // Send initial state to the client
-    socket.emit('initialState', sessions[sessionId]);
+
+    // Notify other clients in the session
+    socket.to(sessionId).emit('userJoinedSession', {
+      socketId: socket.id,
+      sessionId,
+      timestamp: new Date().toISOString()
+    });
+
+    // Send initial state
+    socket.emit('initialState', {
+      boxes: sessions[sessionId].boxes,
+      sessionId,
+      socketId: socket.id,
+      timestamp: new Date().toISOString()
+    });
   });
   
   // Handle box updates
   socket.on('updateBox', (data) => {
     const { sessionId, boxId, newX, newY, effect, mixValue, volume } = data;
     
+    console.log('Received box update:', {
+      from: socket.id,
+      sessionId,
+      boxId,
+      currentSession,
+      update: { newX, newY, effect, mixValue, volume }
+    });
+    
     // Ignore if no session ID
-    if (!sessionId) return;
+    if (!sessionId) {
+      console.log('Ignoring update - no session ID provided');
+      return;
+    }
+    
+    // Verify socket is in the correct room
+    const room = io.sockets.adapter.rooms.get(sessionId);
+    if (!room || !room.has(socket.id)) {
+      console.log(`Socket ${socket.id} not in session ${sessionId}, rejoining...`);
+      socket.join(sessionId);
+      currentSession = sessionId;
+    }
     
     // Initialize session if it doesn't exist
     if (!sessions[sessionId]) {
+      console.log(`Creating new session: ${sessionId}`);
       sessions[sessionId] = { boxes: [] };
     }
     
@@ -84,24 +134,78 @@ io.on('connection', (socket) => {
       sessions[sessionId].boxes.push({});
     }
     
-    // Update the box state
+    // Update the box state using the same property names as the client
     const box = sessions[sessionId].boxes[boxId] || {};
-    if (newX !== undefined) box.x = newX;
-    if (newY !== undefined) box.y = newY;
-    if (effect !== undefined) box.effect = effect;
-    if (mixValue !== undefined) box.mixValue = mixValue;
-    if (volume !== undefined) box.volume = volume;
+    box.newX = newX;
+    box.newY = newY;
+    box.effect = effect;
+    box.mixValue = mixValue;
+    box.volume = volume;
     
     // Store the updated box
     sessions[sessionId].boxes[boxId] = box;
     
+    // Get current room members
+    const roomMembers = room ? Array.from(room) : [];
+    
+    // Log the update being broadcast
+    console.log('Broadcasting box update:', {
+      from: socket.id,
+      to: roomMembers.filter(id => id !== socket.id), // Only other clients
+      sessionId,
+      boxId,
+      roomMembers,
+      roomSize: room ? room.size : 0,
+      update: { newX, newY, effect, mixValue, volume },
+      timestamp: new Date().toISOString()
+    });
+    
+    // Log room state
+    console.log('Room state before broadcast:', {
+      sessionId,
+      allRooms: Array.from(io.sockets.adapter.rooms.keys()),
+      roomMembers,
+      socketRooms: Array.from(socket.rooms),
+      timestamp: new Date().toISOString()
+    });
+    
     // Broadcast to other clients in the same session
-    socket.to(sessionId).emit('boxUpdated', data);
+    socket.to(sessionId).emit('boxUpdated', {
+      sessionId,
+      socketId: socket.id,
+      boxId,
+      newX,
+      newY,
+      effect,
+      mixValue,
+      volume,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Verify broadcast
+    console.log('Broadcast complete:', {
+      sessionId,
+      event: 'boxUpdated',
+      recipientCount: roomMembers.length - 1,
+      timestamp: new Date().toISOString()
+    });
   });
   
   // Handle disconnections
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    console.log('Client disconnected:', {
+      socketId: socket.id,
+      sessionId: currentSession,
+      timestamp: new Date().toISOString()
+    });
+    
+    if (currentSession) {
+      const room = io.sockets.adapter.rooms.get(currentSession);
+      console.log(`Remaining members in session ${currentSession}:`, {
+        count: room ? room.size : 0,
+        members: room ? Array.from(room) : []
+      });
+    }
   });
 });
 
