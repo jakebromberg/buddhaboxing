@@ -237,6 +237,70 @@ if (process.env.NODE_ENV === 'development') {
   });
 }
 
+// List active sessions endpoint
+app.get('/list-sessions', (req, res) => {
+  const activeSessionIds = Object.keys(sessions);
+  
+  // Create HTML response
+  const html = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Active Sessions</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          h1 {
+            color: #333;
+          }
+          .session-list {
+            list-style: none;
+            padding: 0;
+          }
+          .session-item {
+            margin: 10px 0;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+          }
+          .session-link {
+            color: #007bff;
+            text-decoration: none;
+          }
+          .session-link:hover {
+            text-decoration: underline;
+          }
+          .no-sessions {
+            color: #666;
+            font-style: italic;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Active Sessions</h1>
+        ${
+          activeSessionIds.length > 0 
+          ? `<ul class="session-list">
+              ${activeSessionIds.map(sessionId => `
+                <li class="session-item">
+                  <a class="session-link" href="/?session=${sessionId}">Session: ${sessionId}</a>
+                  (${sessions[sessionId].boxes.length} boxes)
+                </li>
+              `).join('')}
+            </ul>`
+          : '<p class="no-sessions">No active sessions</p>'
+        }
+      </body>
+    </html>
+  `;
+  
+  res.send(html);
+});
+
 // Start the server
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
