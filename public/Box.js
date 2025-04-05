@@ -3,11 +3,10 @@ import { BoxState } from './boxState.js';
 import { createEffect } from './nativeEffects.js';
 
 export class Box {
-    constructor(index, audioManager, isSafari, audioFiles, onBoxUpdate) {
-        this.index = index;
+    constructor(fileName, audioManager, onBoxUpdate, order) {
+        this.fileName = fileName;
+        this.order = order;
         this.audioManager = audioManager;
-        this.isSafari = isSafari;
-        this.audioFiles = audioFiles;
         this.sendBoxUpdate = onBoxUpdate;  // Rename to be more explicit
         this.isDragging = false;
         this.hasDragged = false;
@@ -42,22 +41,22 @@ export class Box {
         this.element.style.height = '40px';
         this.element.style.position = 'absolute';
         this.element.style.left = '10px';
-        this.element.style.top = `${20 + this.index * 50}px`;
+        
+        // Position box based on its order
+        this.element.style.top = `${20 + (this.order - 1) * 50}px`;  // Subtract 1 since order starts at 1
+        
         this.element.style.width = '120px';
 
         // Store reference to this box
-        this.element.boxId = this.index;
+        this.element.boxId = this.fileName;
 
-        // Create audio manager
-        this.audioManager = new AudioContextManager();
-
-        // Create box state manager
-        this.state = new BoxState(this.element, this.index, this.audioManager);
+        // Create box state manager (using the injected audioManager)
+        this.state = new BoxState(this.element, this.fileName, this.audioManager);
 
         // Add box number
         const boxNumber = document.createElement('div');
         boxNumber.classList.add('box-number');
-        boxNumber.textContent = (this.index + 1).toString().padStart(2, '0');
+        boxNumber.textContent = this.fileName;
         this.element.appendChild(boxNumber);
 
         // Create controls container
@@ -292,6 +291,12 @@ export class Box {
     }
 
     getBoxColor() {
+        // Create a deterministic color based on the fileName string
+        let hash = 0;
+        for (let i = 0; i < this.fileName.length; i++) {
+            hash = this.fileName.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        
         const boxColors = [
             '#FF6B6B', // red
             '#4ECDC4', // teal
@@ -303,7 +308,10 @@ export class Box {
             '#E6AA68', // orange
             '#A5AAA3'  // gray
         ];
-        return boxColors[this.index];
+        
+        // Use the hash to select a color
+        const colorIndex = Math.abs(hash) % boxColors.length;
+        return boxColors[colorIndex];
     }
 
     debounce(func, wait) {
@@ -375,7 +383,7 @@ export class Box {
         // Send position update
         if (this.sendBoxUpdate) {
             console.log('Box sending update:', {
-                boxId: this.index,
+                boxId: this.fileName,
                 newX: newX,
                 newY: newY,
                 effect: this.effectSelect.value,
@@ -385,7 +393,7 @@ export class Box {
             });
             
             this.sendBoxUpdate({
-                boxId: this.index,
+                boxId: this.fileName,
                 newX: newX,
                 newY: newY,
                 effect: this.effectSelect.value,
@@ -394,7 +402,7 @@ export class Box {
             });
         } else {
             console.warn('Box update function not available:', {
-                boxId: this.index,
+                boxId: this.fileName,
                 timestamp: new Date().toISOString()
             });
         }
@@ -495,7 +503,7 @@ export class Box {
             const currentY = parseInt(this.element.style.top);
             
             this.sendBoxUpdate({
-                boxId: this.index,
+                boxId: this.fileName,
                 newX: currentX,
                 newY: currentY,
                 effect: this.effectSelect.value,
@@ -517,20 +525,20 @@ export class Box {
     handleEffectChange(e) {
         const effectName = this.effectSelect.value;
         
+        // Get current position from style at the start
+        const currentX = parseInt(this.element.style.left);
+        const currentY = parseInt(this.element.style.top);
+        
         // Send effect update
         if (this.sendBoxUpdate) {
             console.log('Box sending effect update:', {
-                boxId: this.index,
+                boxId: this.fileName,
                 effect: effectName,
                 timestamp: new Date().toISOString()
             });
             
-            // Get current position from style
-            const currentX = parseInt(this.element.style.left);
-            const currentY = parseInt(this.element.style.top);
-            
             this.sendBoxUpdate({
-                boxId: this.index,
+                boxId: this.fileName,
                 newX: currentX,
                 newY: currentY,
                 effect: effectName,
@@ -563,7 +571,7 @@ export class Box {
                 // Send another update after expansion is complete
                 if (this.sendBoxUpdate) {
                     this.sendBoxUpdate({
-                        boxId: this.index,
+                        boxId: this.fileName,
                         newX: currentX,
                         newY: currentY,
                         effect: effectName,
@@ -591,7 +599,7 @@ export class Box {
                 // Send another update after collapse is complete
                 if (this.sendBoxUpdate) {
                     this.sendBoxUpdate({
-                        boxId: this.index,
+                        boxId: this.fileName,
                         newX: currentX,
                         newY: currentY,
                         effect: effectName,
@@ -615,7 +623,7 @@ export class Box {
         // Send mix update
         if (this.sendBoxUpdate) {
             console.log('Box sending mix update:', {
-                boxId: this.index,
+                boxId: this.fileName,
                 mixValue,
                 timestamp: new Date().toISOString()
             });
@@ -625,7 +633,7 @@ export class Box {
             const currentY = parseInt(this.element.style.top);
             
             this.sendBoxUpdate({
-                boxId: this.index,
+                boxId: this.fileName,
                 newX: currentX,
                 newY: currentY,
                 effect: this.effectSelect.value,
@@ -646,7 +654,7 @@ export class Box {
         // Send volume update
         if (this.sendBoxUpdate) {
             console.log('Box sending volume update:', {
-                boxId: this.index,
+                boxId: this.fileName,
                 volume,
                 timestamp: new Date().toISOString()
             });
@@ -656,7 +664,7 @@ export class Box {
             const currentY = parseInt(this.element.style.top);
             
             this.sendBoxUpdate({
-                boxId: this.index,
+                boxId: this.fileName,
                 newX: currentX,
                 newY: currentY,
                 effect: this.effectSelect.value,
@@ -949,7 +957,7 @@ export class Box {
             boxRect.bottom <= tableRect.bottom
         );
 
-        console.log(`Box ${this.index + 1} position check:`, {
+        console.log(`Box ${this.fileName} position check:`, {
             insideTable,
             boxPosition: { left: boxRect.left, top: boxRect.top },
             tableBounds: { left: tableRect.left, top: tableRect.top },
@@ -961,7 +969,7 @@ export class Box {
         // Start or stop audio based on position
         if (insideTable) {
             if (!this.state.isPlaying) {
-                console.log(`Starting audio for box ${this.index + 1} - Current state:`, {
+                console.log(`Starting audio for box ${this.fileName} - Current state:`, {
                     isPlaying: this.state.isPlaying,
                     audioContextState: this.audioManager.getState(),
                     timestamp: new Date().toISOString()
@@ -970,7 +978,7 @@ export class Box {
             }
         } else {
             if (this.state.isPlaying) {
-                console.log(`Stopping audio for box ${this.index + 1} - Current state:`, {
+                console.log(`Stopping audio for box ${this.fileName} - Current state:`, {
                     isPlaying: this.state.isPlaying,
                     audioContextState: this.audioManager.getState(),
                     timestamp: new Date().toISOString()
@@ -982,32 +990,32 @@ export class Box {
 
     async loadAudioLoop() {
         try {
-            console.log(`Loading audio file: ${this.audioFiles[this.index]} for box ${this.index + 1}`);
-            const response = await fetch(`/loops/${this.audioFiles[this.index]}`);
+            const response = await fetch(`/loops/${this.fileName}.m4a`);
+            
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
 
             const arrayBuffer = await response.arrayBuffer();
-            console.log(`Audio file loaded, decoding for box ${this.index + 1}`);
+            console.log(`Audio file loaded, decoding for box ${this.fileName}`);
 
             // Decode the array buffer into an AudioBuffer
             this.audioBuffer = await this.audioManager.decodeAudioData(arrayBuffer);
-            console.log(`Audio buffer decoded for box ${this.index + 1}`);
+            console.log(`Audio buffer decoded for box ${this.fileName}`);
         } catch (error) {
-            console.error(`Error loading audio file for box ${this.index + 1}:`, error);
+            console.error(`Error loading audio file for box ${this.fileName}:`, error);
         }
     }
 
     async startAudio() {
         if (this.state.isPlaying) {
-            console.log(`Box ${this.index + 1} is already playing`);
+            console.log(`Box ${this.fileName} is already playing`);
             return;
         }
 
         // Check if audio buffer is available
         if (!this.audioBuffer) {
-            console.log(`Audio buffer not available for box ${this.index + 1}, waiting for it to load...`);
+            console.log(`Audio buffer not available for box ${this.fileName}, waiting for it to load...`);
             try {
                 await this.loadAudioLoop();
                 if (!this.audioBuffer) {
@@ -1021,9 +1029,9 @@ export class Box {
 
         try {
             await this.state.startAudio(this.audioBuffer);
-            console.log(`Successfully started audio for box ${this.index + 1}`);
+            console.log(`Successfully started audio for box ${this.fileName}`);
         } catch (e) {
-            console.error(`Error starting audio for box ${this.index + 1}:`, e);
+            console.error(`Error starting audio for box ${this.fileName}:`, e);
         }
     }
 

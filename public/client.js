@@ -6,10 +6,17 @@ import { nativeEffects } from './nativeEffects.js';
 const audioManager = new AudioContextManager();
 
 // Initialize audio files
-const audioFiles = [
-  '01.m4a', '02.m4a', '03.m4a', '04.m4a', '05.m4a',
-  '06.m4a', '07.m4a', '08.m4a', '09.m4a'
-];
+const audioFiles = {
+  "Ma": 1,
+  "Zheng": 2,
+  "Sheng": 3,
+  "B1": 4,
+  "Yang": 5,
+  "Xiao": 6,
+  "Zhong": 7,
+  "B2": 8,
+  "Wu": 9
+};
 
 // Update interval for syncing box positions
 const UPDATE_INTERVAL = 100; // milliseconds
@@ -349,41 +356,36 @@ socket.on('boxUpdated', (data) => {
 });
 
 function createBoxes() {
-  console.log('Creating boxes...');
-  const table = document.getElementById('table');
-  
-  // Safety check - if table doesn't exist, log error but continue creating boxes
-  if (!table) {
-    console.error('Table element not found - boxes will still be created but may not be properly positioned');
-  }
-  
-  // Create a box for each audio file
-  audioFiles.forEach((file, index) => {
-    const box = new Box(index, audioManager, isSafari, audioFiles, sendBoxUpdate);
-    boxes[index] = box;
-    
-    // Apply any saved positions from server
-    if (boxPositionsFromServer && boxPositionsFromServer[index]) {
-      const boxState = boxPositionsFromServer[index];
-      // Ensure we pass all state properties, including isExpanded
-      box.updateFromServer({
-        newX: boxState.newX,
-        newY: boxState.newY,
-        effect: boxState.effect,
-        mixValue: boxState.mixValue,
-        volume: boxState.volume,
-        isExpanded: boxState.isExpanded
-      });
-    }
-  });
+  try {
+    // Create boxes based on the audioFiles dictionary
+    Object.entries(audioFiles).forEach(([fileName, order]) => {
+      const box = new Box(fileName, audioManager, sendBoxUpdate, order);
+      boxes[order - 1] = box;  // Subtract 1 since order starts at 1
 
-  // After all boxes are created and positions are set, check positions
-  // Use a small delay to ensure DOM updates are complete
-  setTimeout(() => {
-    boxes.forEach(box => {
-      box.checkBoxPosition();
+      // Apply any saved positions from server if available
+      if (boxPositionsFromServer && boxPositionsFromServer[order - 1]) {
+        const boxState = boxPositionsFromServer[order - 1];
+        // Ensure we pass all state properties, including isExpanded
+        box.updateFromServer({
+          newX: boxState.newX,
+          newY: boxState.newY,
+          effect: boxState.effect,
+          mixValue: boxState.mixValue,
+          volume: boxState.volume,
+          isExpanded: boxState.isExpanded
+        });
+      }
     });
-  }, 100);
+
+    boxesCreated = true;
+    console.log('Boxes created successfully:', {
+      boxCount: boxes.length,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error creating boxes:', error);
+    throw error;
+  }
 }
 
 function sendBoxUpdate(update) {
