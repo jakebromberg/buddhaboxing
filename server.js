@@ -36,6 +36,23 @@ app.get(['/loops', '/loops/'], (req, res) => {
 
 // Track sessions and their states
 const sessions = {};
+const sessionLastActivity = {}; // Track last activity time for each session
+const SESSION_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
+
+// Cleanup inactive sessions periodically
+setInterval(() => {
+  const now = Date.now();
+  Object.keys(sessions).forEach(sessionId => {
+    const lastActivity = sessionLastActivity[sessionId] || 0;
+    if (now - lastActivity > SESSION_TIMEOUT) {
+      console.log(`Cleaning up inactive session: ${sessionId}`);
+      delete sessions[sessionId];
+      delete sessionLastActivity[sessionId];
+      // Notify all clients in the session that it's being closed
+      io.to(sessionId).emit('sessionTimeout');
+    }
+  });
+}, 60000); // Check every minute
 
 // Socket.IO connections
 io.on('connection', (socket) => {
@@ -43,8 +60,19 @@ io.on('connection', (socket) => {
   
   let currentSession = null;
   
+  // Handle session pings
+  socket.on('ping', ({ sessionId }) => {
+    if (sessions[sessionId]) {
+      sessionLastActivity[sessionId] = Date.now();
+      console.log(`Session ${sessionId} pinged at ${new Date().toISOString()}`);
+    }
+  });
+
   // Join a session
   socket.on('joinSession', ({ sessionId }) => {
+    // Update last activity time when someone joins
+    sessionLastActivity[sessionId] = Date.now();
+    
     console.log('Client joining session:', {
       socketId: socket.id,
       sessionId,

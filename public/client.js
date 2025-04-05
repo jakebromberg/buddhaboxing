@@ -46,6 +46,22 @@ socket.on('connect', () => {
   socket.emit('joinSession', { sessionId });
 });
 
+// Start session ping interval
+const PING_INTERVAL = 5 * 60 * 1000; // Ping every 5 minutes (half the timeout period)
+setInterval(() => {
+  if (socket.connected) {
+    socket.emit('ping', { sessionId });
+  }
+}, PING_INTERVAL);
+
+// Handle session timeout
+socket.on('sessionTimeout', () => {
+  console.log('Session timed out due to inactivity');
+  alert('This session has been closed due to inactivity. Please refresh the page to start a new session.');
+  // Optionally, redirect to a new session
+  window.location.href = window.location.pathname;
+});
+
 socket.on('connect_error', (error) => {
   console.error('Socket connection error:', error);
 });
