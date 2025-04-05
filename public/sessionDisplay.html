@@ -1,0 +1,49 @@
+<!-- Session Display Template -->
+<div id="session-display" class="session-display">
+  <div class="session-url-label">Share URL:</div>
+  <div id="url-display" class="url-display" title="Click to copy"></div>
+  <div class="sync-container">
+    <input type="checkbox" id="sync-toggle" checked>
+    <label for="sync-toggle">Enable sync</label>
+  </div>
+</div>
+
+<style>
+.session-display {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  padding: 10px;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  border-radius: 5px;
+  font-family: Arial, sans-serif;
+  font-size: 12px;
+  z-index: 1000;
+}
+
+.session-url-label {
+  margin-bottom: 5px;
+  font-weight: bold;
+}
+
+.url-display {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 250px;
+  padding: 5px;
+  background: rgba(0,0,0,0.5);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.sync-container {
+  margin-top: 10px;
+}
+
+.sync-container label {
+  cursor: pointer;
+  margin-left: 5px;
+}
+</style> 

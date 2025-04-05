@@ -176,112 +176,84 @@ const boxColors = [
 createSessionDisplay();
 
 // Create session display
-function createSessionDisplay() {
-  const body = document.body;
-  const sessionDisplay = document.createElement('div');
-  sessionDisplay.style.position = 'fixed';
-  sessionDisplay.style.top = '10px';
-  sessionDisplay.style.right = '10px';
-  sessionDisplay.style.padding = '10px';
-  sessionDisplay.style.background = 'rgba(0,0,0,0.7)';
-  sessionDisplay.style.color = 'white';
-  sessionDisplay.style.borderRadius = '5px';
-  sessionDisplay.style.fontFamily = 'Arial, sans-serif';
-  sessionDisplay.style.fontSize = '12px';
-  sessionDisplay.style.zIndex = '1000';
-  
-  // Create a full URL with session ID as query parameter
-  const fullUrl = new URL(window.location.href);
-  fullUrl.searchParams.set('session', sessionId);
-  const shareUrl = fullUrl.toString();
-  
-  // Session URL (includes session ID)
-  const sessionUrl = document.createElement('div');
-  sessionUrl.textContent = `Share URL:`;
-  sessionUrl.style.marginBottom = '5px';
-  sessionUrl.style.fontWeight = 'bold';
-  sessionDisplay.appendChild(sessionUrl);
-  
-  // URL display element with overflow handling
-  const urlDisplay = document.createElement('div');
-  urlDisplay.textContent = shareUrl;
-  urlDisplay.style.overflow = 'hidden';
-  urlDisplay.style.textOverflow = 'ellipsis';
-  urlDisplay.style.whiteSpace = 'nowrap';
-  urlDisplay.style.maxWidth = '250px';
-  urlDisplay.style.padding = '5px';
-  urlDisplay.style.background = 'rgba(0,0,0,0.5)';
-  urlDisplay.style.borderRadius = '3px';
-  urlDisplay.style.cursor = 'pointer';
-  urlDisplay.title = 'Click to copy';
-  
-  // Click to copy functionality
-  urlDisplay.onclick = async () => {
-    try {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(shareUrl);
-        urlDisplay.textContent = 'URL copied!';
-      } else {
-        // Fallback for browsers that don't support clipboard API
-        const textArea = document.createElement('textarea');
-        textArea.value = shareUrl;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        document.body.appendChild(textArea);
-        textArea.select();
-        try {
-          document.execCommand('copy');
+async function createSessionDisplay() {
+  try {
+    // Fetch and parse the template
+    const response = await fetch('/sessionDisplay.html');
+    const templateText = await response.text();
+    
+    // Create a temporary container and insert the template
+    const tempContainer = document.createElement('div');
+    tempContainer.innerHTML = templateText;
+    
+    // Extract the template content
+    const sessionDisplay = tempContainer.querySelector('#session-display');
+    const urlDisplay = sessionDisplay.querySelector('#url-display');
+    const syncToggle = sessionDisplay.querySelector('#sync-toggle');
+    
+    // Create a full URL with session ID as query parameter
+    const fullUrl = new URL(window.location.href);
+    fullUrl.searchParams.set('session', sessionId);
+    const shareUrl = fullUrl.toString();
+    
+    // Set the URL display text
+    urlDisplay.textContent = shareUrl;
+    
+    // Set initial sync state
+    syncToggle.checked = syncEnabled;
+    
+    // Click to copy functionality
+    urlDisplay.onclick = async () => {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
           urlDisplay.textContent = 'URL copied!';
-        } catch (err) {
-          urlDisplay.textContent = 'Press Ctrl+C to copy';
-          console.error('Fallback copy failed:', err);
+        } else {
+          // Fallback for browsers that don't support clipboard API
+          const textArea = document.createElement('textarea');
+          textArea.value = shareUrl;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-9999px';
+          document.body.appendChild(textArea);
+          textArea.select();
+          try {
+            document.execCommand('copy');
+            urlDisplay.textContent = 'URL copied!';
+          } catch (err) {
+            urlDisplay.textContent = 'Press Ctrl+C to copy';
+            console.error('Fallback copy failed:', err);
+          }
+          document.body.removeChild(textArea);
         }
-        document.body.removeChild(textArea);
+        setTimeout(() => {
+          urlDisplay.textContent = shareUrl;
+        }, 2000);
+      } catch (err) {
+        console.error('Copy failed:', err);
+        urlDisplay.textContent = 'Press Ctrl+C to copy';
+        setTimeout(() => {
+          urlDisplay.textContent = shareUrl;
+        }, 2000);
       }
-      setTimeout(() => {
-        urlDisplay.textContent = shareUrl;
-      }, 2000);
-    } catch (err) {
-      console.error('Copy failed:', err);
-      urlDisplay.textContent = 'Press Ctrl+C to copy';
-      setTimeout(() => {
-        urlDisplay.textContent = shareUrl;
-      }, 2000);
-    }
-  };
-  sessionDisplay.appendChild(urlDisplay);
-  
-  // Sync toggle
-  const syncToggle = document.createElement('input');
-  syncToggle.type = 'checkbox';
-  syncToggle.checked = syncEnabled;
-  syncToggle.style.marginRight = '5px';
-  syncToggle.id = 'sync-toggle';
-  
-  const syncLabel = document.createElement('label');
-  syncLabel.textContent = 'Enable sync';
-  syncLabel.htmlFor = 'sync-toggle';
-  syncLabel.style.cursor = 'pointer';
-  
-  const syncContainer = document.createElement('div');
-  syncContainer.style.marginTop = '10px';
-  syncContainer.appendChild(syncToggle);
-  syncContainer.appendChild(syncLabel);
-  sessionDisplay.appendChild(syncContainer);
-  
-  // Event handler for sync toggle
-  syncToggle.addEventListener('change', (e) => {
-    syncEnabled = e.target.checked;
-    console.log('Sync status changed:', {
-      enabled: syncEnabled,
-      sessionId,
-      socketId: socket.id,
-      socketConnected: socket.connected,
-      timestamp: new Date().toISOString()
+    };
+    
+    // Event handler for sync toggle
+    syncToggle.addEventListener('change', (e) => {
+      syncEnabled = e.target.checked;
+      console.log('Sync status changed:', {
+        enabled: syncEnabled,
+        sessionId,
+        socketId: socket.id,
+        socketConnected: socket.connected,
+        timestamp: new Date().toISOString()
+      });
     });
-  });
-  
-  body.appendChild(sessionDisplay);
+    
+    // Add the session display to the document
+    document.body.appendChild(sessionDisplay);
+  } catch (error) {
+    console.error('Error creating session display:', error);
+  }
 }
 
 // Receive box updates from other clients
