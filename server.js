@@ -160,105 +160,31 @@ io.on('connection', (socket) => {
   
   // Handle box updates
   socket.on('updateBox', (data, callback) => {
-    log(`Received box update: ${JSON.stringify({
-      from: socket.id,
-      sessionId: data.sessionId,
-      boxId: data.boxId,
-      currentSession,
-      update: { 
-        newX: data.newX, 
-        newY: data.newY, 
-        effect: data.effect, 
-        mixValue: data.mixValue, 
-        volume: data.volume,
-        isExpanded: data.isExpanded 
-      }
-    })}`);
-    
     const { sessionId, boxId, newX, newY, effect, mixValue, volume, isExpanded } = data;
     
-    // Ignore if no session ID
-    if (!sessionId) {
-      log('Ignoring update - no session ID provided');
-      return;
-    }
-    
-    // Verify socket is in the correct room
-    const room = io.sockets.adapter.rooms.get(sessionId);
-    if (!room || !room.has(socket.id)) {
-      log(`Socket ${socket.id} not in session ${sessionId}, rejoining...`);
-      socket.join(sessionId);
-      currentSession = sessionId;
-    }
-    
-    // Initialize session if it doesn't exist
-    if (!sessions[sessionId]) {
-      log(`Creating new session: ${sessionId}`);
-      sessions[sessionId] = { boxes: {} };
-    }
-    
-    // Update the box state using the filename as key
+    // Update the box state in the session
     sessions[sessionId].boxes[boxId] = {
-      newX,
-      newY,
-      effect,
-      mixValue,
-      volume,
-      isExpanded: isExpanded || false  // Ensure isExpanded is always defined
+        newX,
+        newY,
+        effect,
+        mixValue,
+        volume,
+        isExpanded: isExpanded || false  // Ensure isExpanded is always defined
     };
-    
-    // Get current room members
-    const roomMembers = room ? Array.from(room) : [];
-    
-    // Log the update being broadcast
-    log(`Broadcasting box update: ${JSON.stringify({
-      from: socket.id,
-      to: roomMembers.filter(id => id !== socket.id), // Only other clients
-      sessionId,
-      boxId,
-      roomMembers,
-      roomSize: room ? room.size : 0,
-      update: { newX, newY, effect, mixValue, volume, isExpanded: isExpanded || false }
-    })}`);
-    
-    // Log room state
-    log(`Room state before broadcast: ${JSON.stringify({
-      sessionId,
-      allRooms: Array.from(io.sockets.adapter.rooms.keys()),
-      roomMembers,
-      socketRooms: Array.from(socket.rooms)
-    })}`);
-    
-    // Broadcast to other clients in the same session
-    socket.to(sessionId).emit('boxUpdated', {
-      sessionId,
-      socketId: socket.id,
-      boxId,
-      newX,
-      newY,
-      effect,
-      mixValue,
-      volume,
-      isExpanded: isExpanded || false,  // Ensure isExpanded is always defined
-      timestamp: new Date().toISOString()
-    }, (error) => {
-      if (error) {
-        log(`Error broadcasting boxUpdated event: ${error}`);
-      } else {
-        log('boxUpdated event acknowledged by recipients');
-      }
-    });
-    
-    // Verify broadcast
-    log(`Broadcast complete: ${JSON.stringify({
-      sessionId,
-      event: 'boxUpdated',
-      recipientCount: roomMembers.length - 1
-    })}`);
 
-    // Send acknowledgment
+    // Broadcast the update to other clients in the session
+    socket.to(sessionId).emit('boxUpdated', {
+        boxId,
+        newX,
+        newY,
+        effect,
+        mixValue,
+        volume,
+        isExpanded: isExpanded || false  // Ensure isExpanded is always defined
+    });
+
     if (callback) {
-      callback(null);
+        callback(null);
     }
   });
   

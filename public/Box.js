@@ -937,6 +937,18 @@ export class Box {
             console.log(`Box ${this.fileName} is outside table, stopping audio...`);
             this.stop();
         }
+
+        // Send update with current position and expanded state
+        if (this.sendBoxUpdate) {
+            this.sendBoxUpdate({
+                newX: parseInt(this.element.style.left),
+                newY: parseInt(this.element.style.top),
+                effect: this.effectSelect.value,
+                mixValue: this.mixSlider.value / 100,
+                volume: this.volumeSlider.value / 100,
+                isExpanded: this.element.classList.contains('expanded')
+            });
+        }
     }
 
     async startAudio() {
