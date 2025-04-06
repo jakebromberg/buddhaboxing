@@ -2,6 +2,7 @@
 class AudioEngine {
   #audioCtx = null;
   #stateChangeCallbacks = new Set();
+  #currentSource = null;
   
   constructor() {
     this.isInitialized = false;
@@ -240,10 +241,9 @@ class AudioEngine {
   }
 
   createBufferSource() {
-    if (!this.#audioCtx) {
-      throw new Error('Audio context not initialized');
-    }
-    return this.#audioCtx.createBufferSource();
+    const source = this.#audioCtx.createBufferSource();
+    this.setCurrentSource(source);
+    return source;
   }
 
   connect(node) {
@@ -290,6 +290,16 @@ class AudioEngine {
       console.warn("Resume failed with error:", error);
       throw error;
     }
+  }
+
+  // Get the current source node
+  getCurrentSource() {
+    return this.#currentSource;
+  }
+
+  // Set the current source node
+  setCurrentSource(source) {
+    this.#currentSource = source;
   }
 }
 

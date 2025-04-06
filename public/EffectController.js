@@ -226,47 +226,61 @@ export class EffectController {
         throw new Error('Audio context not available');
       }
 
+      // Clean up any existing effect first
+      this.cleanupEffect();
+
       // Create effect instance
       this.effectInstance = createEffect(effectName, audioCtx);
       if (!this.effectInstance) {
         throw new Error(`Failed to create effect: ${effectName}`);
       }
 
-      // Create the effect nodes
-      this.effectInstance.create();
+      // Create the effect nodes and wait for completion
+      const nodes = await this.effectInstance.create();
+      if (!nodes || !nodes.input || !nodes.output) {
+        throw new Error(`Effect ${effectName} failed to create required nodes`);
+      }
 
       // Create audio nodes
-      this.source = audioCtx.createBufferSource();
       this.gainNode = audioCtx.createGain();
-      this.mixNode = audioCtx.createGain();
+      
+      // Create dry and wet paths
+      this.dryGain = audioCtx.createGain();
+      this.wetGain = audioCtx.createGain();
       this.volumeNode = audioCtx.createGain();
 
       // Set initial values
-      this.mixNode.gain.value = 0.5;
+      this.dryGain.gain.value = 1.0;  // Start with full dry signal
+      this.wetGain.gain.value = 0.0;  // Start with no wet signal
       this.volumeNode.gain.value = 1.0;
 
-      // Connect nodes
-      this.source.connect(this.gainNode);
-      this.gainNode.connect(this.mixNode);
-      this.mixNode.connect(this.volumeNode);
-      this.volumeNode.connect(audioCtx.destination);
-
-      // Connect effect if needed
-      if (this.effectInstance) {
-        // Get input and output nodes from the effect instance
-        const effectInput = this.effectInstance.nodes.input;
-        const effectOutput = this.effectInstance.nodes.output;
-        
-        if (!effectInput || !effectOutput) {
-          throw new Error(`Effect ${effectName} missing required nodes`);
-        }
-
-        // Connect through the effect
-        this.source.connect(effectInput);
-        effectOutput.connect(this.mixNode);
+      // Get the current source node from the audio engine
+      const currentSource = this.audioEngine.getCurrentSource();
+      if (!currentSource) {
+        throw new Error('No audio source available');
       }
 
-      console.log(`Effect ${effectName} setup complete for ${this.fileName}`);
+      // Connect nodes
+      currentSource.connect(this.gainNode);
+      
+      // Connect dry path (direct signal)
+      this.gainNode.connect(this.dryGain);
+      
+      // Connect wet path (through effect)
+      this.gainNode.connect(nodes.input);
+      nodes.output.connect(this.wetGain);
+      
+      // Merge dry and wet paths
+      this.dryGain.connect(this.volumeNode);
+      this.wetGain.connect(this.volumeNode);
+      this.volumeNode.connect(audioCtx.destination);
+
+      console.log(`Effect ${effectName} setup complete for ${this.fileName}`, {
+        dryGain: this.dryGain.gain.value,
+        wetGain: this.wetGain.gain.value,
+        effectNodes: nodes,
+        sourceConnected: !!currentSource
+      });
     } catch (error) {
       console.error(`Error setting up effect ${effectName}:`, error);
       this.cleanupEffect();
@@ -276,8 +290,22 @@ export class EffectController {
   
   // Public method to apply mix with internal validation
   applyMix(mixValue) {
-    if (!this.mixNode) return;
-    this.mixNode.gain.value = mixValue;
+    if (!this.dryGain || !this.wetGain) return;
+    
+    // Ensure mixValue is between 0 and 1
+    mixValue = Math.max(0, Math.min(1, mixValue));
+    
+    // Set dry and wet gains to create the mix
+    // When mixValue is 0, we want full dry signal
+    // When mixValue is 1, we want full wet signal
+    this.dryGain.gain.value = 1 - mixValue;
+    this.wetGain.gain.value = mixValue;
+    
+    console.log('Mix updated:', {
+      mixValue,
+      dryGain: this.dryGain.gain.value,
+      wetGain: this.wetGain.gain.value
+    });
   }
   
   setVolume(volume) {

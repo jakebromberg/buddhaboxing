@@ -514,49 +514,48 @@ export class Box {
         });
     }
 
-    handleEffectChange(e) {
-        const effectName = this.effectSelect.value;
-        
-        // Get current position from style at the start
-        const currentX = parseInt(this.element.style.left);
-        const currentY = parseInt(this.element.style.top);
-        
-        // Send effect update
-        if (this.sendBoxUpdate) {
-            console.log('Box sending effect update:', {
-                boxId: this.fileName,
-                effect: effectName,
-                timestamp: new Date().toISOString()
-            });
-            
-            this.sendBoxUpdate({
-                boxId: this.fileName,
-                newX: currentX,
-                newY: currentY,
-                effect: effectName,
-                mixValue: this.mixSlider.value / 100,
-                volume: this.volumeSlider.value / 100,
-                isExpanded: this.element.classList.contains('expanded')
-            });
-        }
+    async handleEffectChange(e) {
+        const effectName = e.target.value;
+        const currentX = this.element.style.left;
+        const currentY = this.element.style.top;
+
+        console.log('Effect change started:', {
+            effectName,
+            isExpanded: this.element.classList.contains('expanded'),
+            currentHeight: this.element.style.height
+        });
 
         try {
-            this.audioPlayer.setupEffect(effectName);
-
+            // First update the UI to show loading state
             if (effectName !== 'none') {
+                console.log('Adding expanded class and showing controls');
                 this.element.classList.add('expanded');
                 const controlsContainer = this.element.querySelector('.controls-container');
                 controlsContainer.style.opacity = '1';
+            }
 
+            // Setup the effect
+            console.log('Setting up effect:', effectName);
+            await this.audioPlayer.setupEffect(effectName);
+
+            if (effectName !== 'none') {
+                // Wait a small amount of time to ensure effect is fully initialized
+                console.log('Waiting for effect initialization...');
+                await new Promise(resolve => setTimeout(resolve, 50));
+                
+                // Now update the UI with the effect parameters
+                console.log('Adjusting box size for effect:', effectName);
                 this.adjustBoxSize(effectName);
 
                 if (this.paramContainer) {
+                    console.log('Setting up parameter controls');
                     this.paramContainer.style.display = 'block';
                     this.paramLabel.style.display = 'block';
                     // Create parameter sliders for the selected effect
                     this.createParamSliders(this.element, effectName);
                 }
                 if (this.mixLabel) {
+                    console.log('Setting up mix controls');
                     this.mixLabel.style.display = 'block';
                     this.mixSlider.style.display = 'block';
                 }
@@ -574,7 +573,8 @@ export class Box {
                     });
                 }
             } else {
-                // Hide controls when 'none' is selected
+                // Handle 'none' effect case
+                console.log('Handling none effect case');
                 this.element.classList.remove('expanded');
                 const controlsContainer = this.element.querySelector('.controls-container');
                 controlsContainer.style.opacity = '0';
@@ -589,7 +589,7 @@ export class Box {
                 }
                 this.element.style.height = '40px';
 
-                // Send another update after collapse is complete
+                // Send update for 'none' effect
                 if (this.sendBoxUpdate) {
                     this.sendBoxUpdate({
                         boxId: this.fileName,
@@ -603,10 +603,13 @@ export class Box {
                 }
             }
         } catch (error) {
-            console.error(`Failed to create effect ${effectName}:`, error);
+            console.error(`Failed to setup effect ${effectName}:`, error);
             // Reset to no effect on error
             this.effectSelect.value = 'none';
             this.element.classList.remove('expanded');
+            const controlsContainer = this.element.querySelector('.controls-container');
+            controlsContainer.style.opacity = '0';
+            this.element.style.height = '40px';
         }
     }
 
@@ -676,14 +679,14 @@ export class Box {
         // Clear existing sliders
         this.paramContainer.innerHTML = '';
 
-        // Get effect parameters from the effect instance
-        const effectInstance = this.audioPlayer.effectInstance;
-        if (!effectInstance) {
+        // Get effect parameters from the effect instance through the EffectController
+        const effectController = this.audioPlayer.effectController;
+        if (!effectController || !effectController.effectInstance) {
             console.error(`Effect instance not initialized: ${effectName}`);
             return;
         }
 
-        const params = effectInstance.getParams();
+        const params = effectController.effectInstance.getParams();
         if (!params) {
             console.error(`No parameters found for effect: ${effectName}`);
             return;
@@ -767,7 +770,7 @@ export class Box {
 
             slider.addEventListener('input', (e) => {
                 const value = parseFloat(e.target.value);
-                if (effectInstance) {
+                if (effectController.effectInstance) {
                     try {
                         param.callback(value);
                     } catch (error) {
@@ -819,8 +822,14 @@ export class Box {
             return;
         }
 
-        // Get the effect instance and its parameters
-        const effectInstance = this.audioPlayer.effectInstance;
+        // Get the effect instance through the effectController
+        const effectController = this.audioPlayer.effectController;
+        if (!effectController) {
+            console.error('Effect controller not available');
+            return;
+        }
+
+        const effectInstance = effectController.effectInstance;
         if (!effectInstance) {
             console.error(`Effect instance not initialized: ${effectName}`);
             return;

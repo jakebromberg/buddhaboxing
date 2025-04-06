@@ -34,6 +34,10 @@ class AudioPlayer {
         return this.#isPlaying;
     }
 
+    get effectController() {
+        return this.#effectController;
+    }
+
     getCurrentTime() {
         return this.#audioManager.getCurrentTime();
     }
@@ -135,6 +139,9 @@ class AudioPlayer {
             this.#source.buffer = audioBuffer;
             this.#source.loop = true;
             
+            // Set the current source in the audio engine
+            this.#audioManager.setCurrentSource(this.#source);
+            
             // Connect nodes
             this.#source.connect(this.#gainNode);
             this.#gainNode.connect(this.getDestination());
@@ -192,4 +199,4 @@ class AudioPlayer {
 }
 
 // Export the AudioPlayer class as default
-export default AudioPlayer; 
+export default AudioPlayer;
