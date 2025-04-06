@@ -743,6 +743,8 @@ export class Box {
             slider.min = param.min;
             slider.max = param.max;
             slider.value = param.default;
+            // Make all sliders continuous by default, except for bitcrusher's bits parameter
+            slider.step = (effectName === 'bitcrusher' && paramName === 'bits') ? 1 : 0.001;
             slider.classList.add('param-control');
             slider.style.flex = '1';
             slider.style.minWidth = '0'; // Important for flex item to shrink properly

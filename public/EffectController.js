@@ -214,66 +214,55 @@ export class EffectController {
   }
   
   async setupEffect(effectName) {
-    if (effectName === 'none') {
-      this.cleanupEffect();
-      return;
-    }
-
     try {
-      // Get audio context from AudioEngine
-      const audioCtx = this.audioEngine.getAudioContext();
-      if (!audioCtx) {
-        throw new Error('Audio context not available');
-      }
-
+      console.log(`Setting up effect ${effectName} for ${this.fileName}`);
+      
       // Clean up any existing effect first
       this.cleanupEffect();
-
-      // Create effect instance
-      this.effectInstance = createEffect(effectName, audioCtx);
-      if (!this.effectInstance) {
-        throw new Error(`Failed to create effect: ${effectName}`);
-      }
-
-      // Create the effect nodes and wait for completion
-      const nodes = await this.effectInstance.create();
-      if (!nodes || !nodes.input || !nodes.output) {
-        throw new Error(`Effect ${effectName} failed to create required nodes`);
-      }
-
-      // Create audio nodes
-      this.gainNode = audioCtx.createGain();
       
-      // Create dry and wet paths
-      this.dryGain = audioCtx.createGain();
-      this.wetGain = audioCtx.createGain();
-      this.volumeNode = audioCtx.createGain();
+      // Create new effect instance
+      this.effectInstance = createEffect(effectName, this.audioEngine.getAudioContext());
+      if (!this.effectInstance) {
+        throw new Error(`Failed to create effect instance for ${effectName}`);
+      }
+      
+      // Create effect nodes
+      const nodes = this.effectInstance.create();
+      if (!nodes || !nodes.input || !nodes.output) {
+        throw new Error(`Effect ${effectName} did not create required nodes`);
+      }
+      
+      // Store the effect node for later use
+      this.effectNode = nodes;
+      
+      // Create gain nodes for dry/wet mix
+      this.dryGain = this.audioEngine.createNode('Gain');
+      this.wetGain = this.audioEngine.createNode('Gain');
+      this.volumeNode = this.audioEngine.createNode('Gain');
 
       // Set initial values
       this.dryGain.gain.value = 1.0;  // Start with full dry signal
       this.wetGain.gain.value = 0.0;  // Start with no wet signal
       this.volumeNode.gain.value = 1.0;
 
-      // Get the current source node from the audio engine
-      const currentSource = this.audioEngine.getCurrentSource();
-      if (!currentSource) {
-        throw new Error('No audio source available');
-      }
-
-      // Connect nodes
-      currentSource.connect(this.gainNode);
+      // Set up the effect chain without requiring a source
+      this.gainNode = this.audioEngine.createNode('Gain');
       
-      // Connect dry path (direct signal)
+      // Connect nodes for the effect chain
       this.gainNode.connect(this.dryGain);
-      
-      // Connect wet path (through effect)
       this.gainNode.connect(nodes.input);
       nodes.output.connect(this.wetGain);
       
       // Merge dry and wet paths
       this.dryGain.connect(this.volumeNode);
       this.wetGain.connect(this.volumeNode);
-      this.volumeNode.connect(audioCtx.destination);
+      this.volumeNode.connect(this.audioEngine.getDestination());
+
+      // If there is a current source, connect it
+      const currentSource = this.audioEngine.getCurrentSource();
+      if (currentSource) {
+        currentSource.connect(this.gainNode);
+      }
 
       console.log(`Effect ${effectName} setup complete for ${this.fileName}`, {
         dryGain: this.dryGain.gain.value,
