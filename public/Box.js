@@ -1,13 +1,16 @@
-import AudioContextManager from './audioContextManager.js';
-import { BoxState } from './boxState.js';
-import { createEffect } from './nativeEffects.js';
+import AudioEngine from './AudioEngine.js';
+import AudioPlayer from './AudioPlayer.js';
 
 export class Box {
-    constructor(fileName, audioManager, onBoxUpdate, order) {
+    static debugMode = false;
+    static debugListenerAdded = false;
+
+    constructor(fileName, audioPlayer, onBoxUpdate, order, audioEngine) {
         this.fileName = fileName;
+        this.audioPlayer = audioPlayer;
+        this.sendBoxUpdate = onBoxUpdate;
         this.order = order;
-        this.audioManager = audioManager;
-        this.sendBoxUpdate = onBoxUpdate;  // Rename to be more explicit
+        this.audioEngine = audioEngine;
         this.isDragging = false;
         this.hasDragged = false;
         this.startX = 0;
@@ -15,12 +18,15 @@ export class Box {
         this.initialX = 0;
         this.initialY = 0;
         this.debugMode = false;
-        this.audioBuffer = null;
-
+        this.source = null;
+        this.gainNode = null;
+        this.element = null;
+        this.effectSelect = null;
+        this.mixSlider = null;
+        this.volumeSlider = null;
         this.createBoxElement();
         this.setupEventListeners();
         this.setupDebugModeListener();
-        this.loadAudioLoop();
     }
 
     createBoxElement() {
@@ -49,9 +55,6 @@ export class Box {
 
         // Store reference to this box
         this.element.boxId = this.fileName;
-
-        // Create box state manager (using the injected audioManager)
-        this.state = new BoxState(this.element, this.fileName, this.audioManager);
 
         // Add box number
         const boxNumber = document.createElement('div');
@@ -258,36 +261,32 @@ export class Box {
     }
 
     setupDebugModeListener() {
-        document.addEventListener('keydown', (e) => {
-            // Debug the key event
-            console.log('Key event:', {
-                key: e.key,
-                code: e.code,
-                altKey: e.altKey,
-                shiftKey: e.shiftKey,
-                metaKey: e.metaKey,
-                ctrlKey: e.ctrlKey
-            });
+        // Only add the listener once
+        if (!Box.debugListenerAdded) {
+            document.addEventListener('keydown', (e) => {
+                // Debug the key event
+                console.log('Key event:', {
+                    key: e.key,
+                    code: e.code,
+                    altKey: e.altKey,
+                    shiftKey: e.shiftKey,
+                    metaKey: e.metaKey,
+                    ctrlKey: e.ctrlKey
+                });
 
-            // Check for Option (Alt) + Shift + K
-            const isOptionKey = e.altKey || e.metaKey; // Support both Option and Alt
-            const isShiftKey = e.shiftKey;
-            const isKKey = e.key.toLowerCase() === 'k' || e.code === 'KeyK';
+                // Check for Option (Alt) + Shift + K
+                const isOptionKey = e.altKey || e.metaKey; // Support both Option and Alt
+                const isShiftKey = e.shiftKey;
+                const isKKey = e.key.toLowerCase() === 'k' || e.code === 'KeyK';
 
-            if (isOptionKey && isShiftKey && isKKey) {
-                e.preventDefault(); // Prevent any default behavior
-                this.debugMode = !this.debugMode;
-                console.log('Debug mode:', this.debugMode ? 'enabled' : 'disabled');
-
-                // Adjust box size based on debug mode
-                this.adjustBoxSize(this.effectSelect.value);
-
-                // Recreate parameter sliders to show/hide debug inputs
-                if (this.effectSelect.value !== 'none') {
-                    this.createParamSliders(this.element, this.effectSelect.value);
+                if (isOptionKey && isShiftKey && isKKey) {
+                    e.preventDefault(); // Prevent any default behavior
+                    Box.debugMode = !Box.debugMode;
+                    console.log('Debug mode:', Box.debugMode ? 'enabled' : 'disabled');
                 }
-            }
-        });
+            });
+            Box.debugListenerAdded = true;
+        }
     }
 
     getBoxColor() {
@@ -352,14 +351,6 @@ export class Box {
         // Store initial position for drag detection
         this.initialX = currentLeft;
         this.initialY = currentTop;
-
-        // Try to initialize audio context when dragging starts
-        if (!this.audioManager.isReady()) {
-            console.log('Audio context not ready, attempting initialization on drag');
-            this.audioManager.initialize().catch(error => {
-                console.warn('Audio initialization failed during drag:', error);
-            });
-        }
     }
 
     handleDragMove(e, debouncedCheckPosition) {
@@ -382,15 +373,15 @@ export class Box {
 
         // Send position update
         if (this.sendBoxUpdate) {
-            console.log('Box sending update:', {
-                boxId: this.fileName,
-                newX: newX,
-                newY: newY,
-                effect: this.effectSelect.value,
-                mixValue: this.mixSlider.value / 100,
-                volume: this.volumeSlider.value / 100,
-                timestamp: new Date().toISOString()
-            });
+            // console.log('Box sending update:', {
+            //     boxId: this.fileName,
+            //     newX: newX,
+            //     newY: newY,
+            //     effect: this.effectSelect.value,
+            //     mixValue: this.mixSlider.value / 100,
+            //     volume: this.volumeSlider.value / 100,
+            //     timestamp: new Date().toISOString()
+            // });
             
             this.sendBoxUpdate({
                 boxId: this.fileName,
@@ -423,6 +414,7 @@ export class Box {
             
             // Only check position if we actually dragged
             if (this.hasDragged) {
+                // Use only the debounced version
                 debouncedCheckPosition();
 
                 // Only collapse if the box wasn't expanded before dragging
@@ -549,8 +541,7 @@ export class Box {
         }
 
         try {
-            this.state.cleanupEffect();
-            this.state.setupEffect(effectName, { [effectName]: (audioCtx) => createEffect(effectName, audioCtx) }, this.createParamSliders.bind(this), this.element);
+            this.audioPlayer.setupEffect(effectName);
 
             if (effectName !== 'none') {
                 this.element.classList.add('expanded');
@@ -562,6 +553,8 @@ export class Box {
                 if (this.paramContainer) {
                     this.paramContainer.style.display = 'block';
                     this.paramLabel.style.display = 'block';
+                    // Create parameter sliders for the selected effect
+                    this.createParamSliders(this.element, effectName);
                 }
                 if (this.mixLabel) {
                     this.mixLabel.style.display = 'block';
@@ -644,7 +637,7 @@ export class Box {
         }
 
         if (this.effectSelect.value !== 'none') {
-            this.state.applyMix(mixValue);
+            this.audioPlayer.setMix(mixValue);
         }
     }
 
@@ -674,7 +667,7 @@ export class Box {
             });
         }
 
-        this.state.setVolume(volume);
+        this.audioPlayer.setVolume(volume);
     }
 
     createParamSliders(box, effectName) {
@@ -684,7 +677,7 @@ export class Box {
         this.paramContainer.innerHTML = '';
 
         // Get effect parameters from the effect instance
-        const effectInstance = this.state.effectInstance;
+        const effectInstance = this.audioPlayer.effectInstance;
         if (!effectInstance) {
             console.error(`Effect instance not initialized: ${effectName}`);
             return;
@@ -827,7 +820,7 @@ export class Box {
         }
 
         // Get the effect instance and its parameters
-        const effectInstance = this.state.effectInstance;
+        const effectInstance = this.audioPlayer.effectInstance;
         if (!effectInstance) {
             console.error(`Effect instance not initialized: ${effectName}`);
             return;
@@ -949,6 +942,13 @@ export class Box {
         const tableRect = table.getBoundingClientRect();
         const boxRect = this.element.getBoundingClientRect();
 
+        console.log('Position check:', {
+            tableRect,
+            boxRect,
+            boxId: this.fileName,
+            isPlaying: this.audioPlayer.isPlaying
+        });
+
         // Check if box is within the table
         const insideTable = (
             boxRect.left >= tableRect.left &&
@@ -957,86 +957,48 @@ export class Box {
             boxRect.bottom <= tableRect.bottom
         );
 
-        console.log(`Box ${this.fileName} position check:`, {
+        console.log('Box position check result:', {
             insideTable,
-            boxPosition: { left: boxRect.left, top: boxRect.top },
-            tableBounds: { left: tableRect.left, top: tableRect.top },
-            ...this.state.getDebugInfo(),
-            audioContextState: this.audioManager.getState(),
-            timestamp: new Date().toISOString()
+            boxId: this.fileName,
+            isPlaying: this.audioPlayer.isPlaying
         });
 
         // Start or stop audio based on position
         if (insideTable) {
-            if (!this.state.isPlaying) {
-                console.log(`Starting audio for box ${this.fileName} - Current state:`, {
-                    isPlaying: this.state.isPlaying,
-                    audioContextState: this.audioManager.getState(),
-                    timestamp: new Date().toISOString()
-                });
-                this.startAudio();
-            }
+            console.log(`Box ${this.fileName} is inside table, starting audio...`);
+            this.startAudio();
         } else {
-            if (this.state.isPlaying) {
-                console.log(`Stopping audio for box ${this.fileName} - Current state:`, {
-                    isPlaying: this.state.isPlaying,
-                    audioContextState: this.audioManager.getState(),
-                    timestamp: new Date().toISOString()
-                });
-                this.stopAudio();
-            }
-        }
-    }
-
-    async loadAudioLoop() {
-        try {
-            const response = await fetch(`/loops/${this.fileName}.m4a`);
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const arrayBuffer = await response.arrayBuffer();
-            console.log(`Audio file loaded, decoding for box ${this.fileName}`);
-
-            // Decode the array buffer into an AudioBuffer
-            this.audioBuffer = await this.audioManager.decodeAudioData(arrayBuffer);
-            console.log(`Audio buffer decoded for box ${this.fileName}`);
-        } catch (error) {
-            console.error(`Error loading audio file for box ${this.fileName}:`, error);
+            console.log(`Box ${this.fileName} is outside table, stopping audio...`);
+            this.stop();
         }
     }
 
     async startAudio() {
-        if (this.state.isPlaying) {
-            console.log(`Box ${this.fileName} is already playing`);
-            return;
-        }
-
-        // Check if audio buffer is available
-        if (!this.audioBuffer) {
-            console.log(`Audio buffer not available for box ${this.fileName}, waiting for it to load...`);
-            try {
-                await this.loadAudioLoop();
-                if (!this.audioBuffer) {
-                    throw new Error('Failed to load audio buffer');
-                }
-            } catch (error) {
-                console.warn(`Error waiting for audio buffer: ${error}`);
-                return;
-            }
-        }
-
         try {
-            await this.state.startAudio(this.audioBuffer);
+            console.log(`Starting audio for box ${this.fileName}...`);
+            await this.audioPlayer.play();
             console.log(`Successfully started audio for box ${this.fileName}`);
         } catch (e) {
             console.error(`Error starting audio for box ${this.fileName}:`, e);
         }
     }
 
-    stopAudio() {
-        this.state.stopAudio();
+    stop() {
+        if (!this.audioPlayer.isPlaying) {
+            return;
+        }
+
+        try {
+            this.audioPlayer.stop();
+            console.log(`Stopped playback for ${this.fileName}`);
+        } catch (error) {
+            console.error(`Error stopping playback for ${this.fileName}:`, error);
+            throw error;
+        }
+    }
+
+    setVolume(volume) {
+        this.audioPlayer.setVolume(volume);
     }
 
     updateFromServer({ newX, newY, effect, mixValue, volume, isExpanded }) {
@@ -1079,14 +1041,13 @@ export class Box {
                 if (effect !== 'none') {
                     const initializeEffect = async () => {
                         try {
-                            if (!this.audioManager.isReady()) {
-                                await this.audioManager.initialize();
+                            if (!this.audioPlayer.isPlaying === 'running') {
+                                await this.audioPlayer.play();
                             }
-                            this.state.cleanupEffect();
-                            await this.state.setupEffect(effect, { [effect]: (audioCtx) => createEffect(effect, audioCtx) }, this.createParamSliders.bind(this), this.element);
+                            await this.audioPlayer.setupEffect(effect);
                             
                             // Update control visibility after effect is initialized
-                            if (this.state.effectInstance) {
+                            if (this.effectSelect.value !== 'none') {
                                 const shouldShow = this.element.classList.contains('expanded');
                                 if (this.paramContainer) {
                                     this.paramContainer.style.display = shouldShow ? 'block' : 'none';
@@ -1106,7 +1067,6 @@ export class Box {
 
                     initializeEffect();
                 } else {
-                    this.state.cleanupEffect();
                     if (this.paramContainer) {
                         this.paramContainer.style.display = 'none';
                         this.paramLabel.style.display = 'none';
@@ -1122,7 +1082,7 @@ export class Box {
         // Update mix value (if provided)
         if (mixValue !== undefined && this.mixSlider) {
             this.mixSlider.value = mixValue * 100;
-            if (this.state.effectInstance) {
+            if (this.effectSelect.value !== 'none') {
                 const inputEvent = new Event('input');
                 this.mixSlider.dispatchEvent(inputEvent);
             }
@@ -1141,10 +1101,9 @@ export class Box {
             const isCurrentlyExpanded = this.element.classList.contains('expanded');
             console.log('Adjusting box size after state update:', {
                 effect: currentEffect,
-                isExpanded: isCurrentlyExpanded,
-                hasEffect: this.state.effectInstance !== null
+                isExpanded: isCurrentlyExpanded
             });
             this.adjustBoxSize(currentEffect);
         }
     }
-} 
+}

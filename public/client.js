@@ -1,9 +1,10 @@
-import AudioContextManager from './audioContextManager.js';
+import AudioEngine from './AudioEngine.js';
 import { Box } from './Box.js';
 import { nativeEffects } from './nativeEffects.js';
+import AudioPlayer from './AudioPlayer.js';
 
 // Create audio manager instance
-const audioManager = new AudioContextManager();
+const audioManager = new AudioEngine();
 
 // Initialize audio files
 const audioFiles = {
@@ -138,21 +139,6 @@ socket.on('initialState', (data) => {
     }
   }
 });
-
-// Debug socket state
-setInterval(() => {
-  if (socket.connected) {
-    console.log('Socket state check:', {
-      connected: socket.connected,
-      id: socket.id,
-      sessionId,
-      timestamp: new Date().toISOString()
-    });
-    
-    // Re-emit join if needed
-    socket.emit('checkSession', sessionId);
-  }
-}, 5000);
 
 // Tracking variables for multi-user functionality
 let boxPositionsFromServer = null;
@@ -359,7 +345,8 @@ function createBoxes() {
   try {
     // Create boxes based on the audioFiles dictionary
     Object.entries(audioFiles).forEach(([fileName, order]) => {
-      const box = new Box(fileName, audioManager, sendBoxUpdate, order);
+      const audioPlayer = new AudioPlayer(audioManager, fileName);
+      const box = new Box(fileName, audioPlayer, sendBoxUpdate, order, audioManager);
       boxes[order - 1] = box;  // Subtract 1 since order starts at 1
 
       // Apply any saved positions from server if available
@@ -414,9 +401,9 @@ function sendBoxUpdate(update) {
     timestamp: new Date().toISOString()
   };
   
-  console.log('Sending box update to other clients:', {
-    ...updateData
-  });
+  // console.log('Sending box update to other clients:', {
+  //   ...updateData
+  // });
   
   // Send with acknowledgment
   socket.emit('updateBox', updateData, (error) => {

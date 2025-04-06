@@ -1,4 +1,4 @@
-import AudioContextManager from './audioContextManager.js';
+import AudioEngine from './AudioEngine.js';
 
 export class NativeEffect {
   constructor(name, audioCtx) {

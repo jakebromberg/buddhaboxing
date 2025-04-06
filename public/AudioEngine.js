@@ -1,20 +1,18 @@
-// Audio Context Manager for handling initialization and Safari-specific unlocks
-class AudioContextManager {
+// Audio Engine for handling initialization and Safari-specific unlocks
+class AudioEngine {
   #audioCtx = null;
   #stateChangeCallbacks = new Set();
   
   constructor() {
     this.isInitialized = false;
     this.isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    console.log('Creating new AudioContext...');
     this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    console.log('AudioContext created, initial state:', this.#audioCtx.state);
+    
     this.#audioCtx.onstatechange = () => {
       console.log('Audio context state changed to:', this.#audioCtx.state);
       this.#stateChangeCallbacks.forEach(callback => callback(this.#audioCtx.state));
-      
-      // If auto-initialize is enabled and state is running, initialize
-      if (this.isReady()) {
-        this.initialize().catch(console.error);
-      }
     };
 
     console.log(`Safari detected: ${this.isSafari}`);
@@ -22,9 +20,11 @@ class AudioContextManager {
 
   // Add a callback for state changes
   onStateChange(callback) {
+    console.log('Adding state change callback');
     this.#stateChangeCallbacks.add(callback);
     // If we already have an audio context, call the callback immediately
     if (this.#audioCtx) {
+      console.log('Calling state change callback immediately with state:', this.#audioCtx.state);
       callback(this.#audioCtx.state);
     }
     return () => this.#stateChangeCallbacks.delete(callback);
@@ -35,6 +35,7 @@ class AudioContextManager {
     console.log('Initializing audio context...');
     console.log('Current state:', this.#audioCtx ? this.#audioCtx.state : 'not created');
     console.log('Is initialized:', this.isInitialized);
+    console.log('Is ready:', this.isReady());
     
     if (this.isInitialized && this.isReady()) {
       console.log('Audio context already initialized and running');
@@ -48,6 +49,7 @@ class AudioContextManager {
     } else {
       // For other browsers, try to resume directly
       try {
+        console.log('Attempting to resume audio context...');
         await this.#audioCtx.resume();
         console.log('Audio context resumed successfully, new state:', this.#audioCtx.state);
       } catch (e) {
@@ -291,5 +293,5 @@ class AudioContextManager {
   }
 }
 
-// Export the AudioContextManager class
-export default AudioContextManager; 
+// Export the AudioEngine class
+export default AudioEngine; 
