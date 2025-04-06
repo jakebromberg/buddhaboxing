@@ -56,7 +56,10 @@ setInterval(() => {
 
 // Socket.IO connections
 io.on('connection', (socket) => {
-  console.log('New client connected:', socket.id);
+  console.log('New client connected:', {
+    socketId: socket.id,
+    timestamp: new Date().toISOString()
+  });
   
   let currentSession = null;
   
@@ -69,7 +72,7 @@ io.on('connection', (socket) => {
   });
 
   // Join a session
-  socket.on('joinSession', ({ sessionId }) => {
+  socket.on('joinSession', ({ sessionId }, callback) => {
     // Update last activity time when someone joins
     sessionLastActivity[sessionId] = Date.now();
     
@@ -123,27 +126,32 @@ io.on('connection', (socket) => {
       socketId: socket.id,
       timestamp: new Date().toISOString()
     });
+
+    // Send acknowledgment
+    if (callback) {
+      callback({ success: true, sessionId });
+    }
   });
   
   // Handle box updates
-  socket.on('updateBox', (data) => {
-    // Debug raw data
-    console.log('Raw updateBox data received:', {
-      fullData: JSON.stringify(data),
-      hasIsExpanded: 'isExpanded' in data,
-      isExpandedType: typeof data.isExpanded,
-      isExpandedValue: data.isExpanded
+  socket.on('updateBox', (data, callback) => {
+    console.log('Received box update:', {
+      from: socket.id,
+      sessionId: data.sessionId,
+      boxId: data.boxId,
+      currentSession,
+      update: { 
+        newX: data.newX, 
+        newY: data.newY, 
+        effect: data.effect, 
+        mixValue: data.mixValue, 
+        volume: data.volume,
+        isExpanded: data.isExpanded 
+      },
+      timestamp: new Date().toISOString()
     });
     
     const { sessionId, boxId, newX, newY, effect, mixValue, volume, isExpanded } = data;
-    
-    console.log('Received box update:', {
-      from: socket.id,
-      sessionId,
-      boxId,
-      currentSession,
-      update: { newX, newY, effect, mixValue, volume, isExpanded }
-    });
     
     // Ignore if no session ID
     if (!sessionId) {
@@ -237,6 +245,11 @@ io.on('connection', (socket) => {
       recipientCount: roomMembers.length - 1,
       timestamp: new Date().toISOString()
     });
+
+    // Send acknowledgment
+    if (callback) {
+      callback(null);
+    }
   });
   
   // Handle disconnections

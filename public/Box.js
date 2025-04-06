@@ -47,10 +47,10 @@ export class Box {
         this.element.style.height = '40px';
         this.element.style.position = 'absolute';
         this.element.style.left = '10px';
-        
+
         // Position box based on its order
         this.element.style.top = `${20 + (this.order - 1) * 50}px`;  // Subtract 1 since order starts at 1
-        
+
         this.element.style.width = '120px';
 
         // Store reference to this box
@@ -220,7 +220,7 @@ export class Box {
         document.addEventListener('touchend', (e) => {
             const touchEndTime = Date.now();
             const touchDuration = touchEndTime - touchStartTime;
-            
+
             if (this.isDragging) {
                 this.handleDragEnd(debouncedCheckPosition);
                 // If touch duration was short and we didn't move much, treat as tap
@@ -295,7 +295,7 @@ export class Box {
         for (let i = 0; i < this.fileName.length; i++) {
             hash = this.fileName.charCodeAt(i) + ((hash << 5) - hash);
         }
-        
+
         const boxColors = [
             '#FF6B6B', // red
             '#4ECDC4', // teal
@@ -307,7 +307,7 @@ export class Box {
             '#E6AA68', // orange
             '#A5AAA3'  // gray
         ];
-        
+
         // Use the hash to select a color
         const colorIndex = Math.abs(hash) % boxColors.length;
         return boxColors[colorIndex];
@@ -333,15 +333,15 @@ export class Box {
 
         this.isDragging = true;
         this.hasDragged = false;
-        
+
         // Scale up the box when dragging starts
         this.element.style.transform = 'scale(1.1)';
         this.element.style.zIndex = '1000'; // Bring to front while dragging
-        
+
         // Get current position from style (or default to current offset if not set)
         const currentLeft = this.element.style.left ? parseInt(this.element.style.left) : this.element.offsetLeft;
         const currentTop = this.element.style.top ? parseInt(this.element.style.top) : this.element.offsetTop;
-        
+
         // Calculate offset from mouse/touch position to element edge
         const clientX = e.clientX || e.pageX;
         const clientY = e.clientY || e.pageY;
@@ -373,16 +373,6 @@ export class Box {
 
         // Send position update
         if (this.sendBoxUpdate) {
-            // console.log('Box sending update:', {
-            //     boxId: this.fileName,
-            //     newX: newX,
-            //     newY: newY,
-            //     effect: this.effectSelect.value,
-            //     mixValue: this.mixSlider.value / 100,
-            //     volume: this.volumeSlider.value / 100,
-            //     timestamp: new Date().toISOString()
-            // });
-            
             this.sendBoxUpdate({
                 boxId: this.fileName,
                 newX: newX,
@@ -411,7 +401,7 @@ export class Box {
             // Reset scale and z-index when dragging ends
             this.element.style.transform = 'scale(1)';
             this.element.style.zIndex = '1';
-            
+
             // Only check position if we actually dragged
             if (this.hasDragged) {
                 // Use only the debounced version
@@ -427,7 +417,7 @@ export class Box {
 
             // Reset isDragging immediately
             this.isDragging = false;
-            
+
             // Reset hasDragged after a short delay to ensure click handler sees the correct state
             setTimeout(() => {
                 this.hasDragged = false;
@@ -493,7 +483,7 @@ export class Box {
         if (this.sendBoxUpdate) {
             const currentX = parseInt(this.element.style.left);
             const currentY = parseInt(this.element.style.top);
-            
+
             this.sendBoxUpdate({
                 boxId: this.fileName,
                 newX: currentX,
@@ -542,7 +532,7 @@ export class Box {
                 // Wait a small amount of time to ensure effect is fully initialized
                 console.log('Waiting for effect initialization...');
                 await new Promise(resolve => setTimeout(resolve, 50));
-                
+
                 // Now update the UI with the effect parameters
                 console.log('Adjusting box size for effect:', effectName);
                 this.adjustBoxSize(effectName);
@@ -615,7 +605,7 @@ export class Box {
 
     handleMixChange(e) {
         const mixValue = e.target.value / 100;
-        
+
         // Send mix update
         if (this.sendBoxUpdate) {
             console.log('Box sending mix update:', {
@@ -623,11 +613,11 @@ export class Box {
                 mixValue,
                 timestamp: new Date().toISOString()
             });
-            
+
             // Get current position from style
             const currentX = parseInt(this.element.style.left);
             const currentY = parseInt(this.element.style.top);
-            
+
             this.sendBoxUpdate({
                 boxId: this.fileName,
                 newX: currentX,
@@ -646,7 +636,7 @@ export class Box {
 
     handleVolumeChange(e) {
         const volume = e.target.value / 100;
-        
+
         // Send volume update
         if (this.sendBoxUpdate) {
             console.log('Box sending volume update:', {
@@ -654,11 +644,11 @@ export class Box {
                 volume,
                 timestamp: new Date().toISOString()
             });
-            
+
             // Get current position from style
             const currentX = parseInt(this.element.style.left);
             const currentY = parseInt(this.element.style.top);
-            
+
             this.sendBoxUpdate({
                 boxId: this.fileName,
                 newX: currentX,
@@ -904,45 +894,6 @@ export class Box {
         });
     }
 
-    updateBoxPosition() {
-        if (!this.isDragging) return;
-
-        const currentX = this.element.offsetLeft;
-        const currentY = this.element.offsetTop;
-        const targetX = this.initialX;
-        const targetY = this.initialY;
-        const dx = targetX - currentX;
-        const dy = targetY - currentY;
-
-        if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.1) {
-            return;
-        }
-
-        const easing = 0.1;
-        const newX = currentX + dx * easing;
-        const newY = currentY + dy * easing;
-
-        this.element.style.left = `${newX}px`;
-        this.element.style.top = `${newY}px`;
-
-        requestAnimationFrame(() => this.updateBoxPosition());
-    }
-
-    isBoxInsideTable(box) {
-        const table = document.getElementById('table');
-        if (!table) return false;
-
-        const tableRect = table.getBoundingClientRect();
-        const boxRect = box.getBoundingClientRect();
-
-        return (
-            boxRect.left >= tableRect.left &&
-            boxRect.right <= tableRect.right &&
-            boxRect.top >= tableRect.top &&
-            boxRect.bottom <= tableRect.bottom
-        );
-    }
-
     checkBoxPosition() {
         const table = document.getElementById('table');
         if (!table) {
@@ -1008,113 +959,19 @@ export class Box {
         }
     }
 
-    setVolume(volume) {
-        this.audioPlayer.setVolume(volume);
-    }
-
     updateFromServer({ newX, newY, effect, mixValue, volume, isExpanded }) {
-        console.log('Received server update:', {
-            newX, newY, effect, mixValue, volume, isExpanded,
-            currentEffect: this.effectSelect.value,
-            currentlyExpanded: this.element.classList.contains('expanded')
-        });
+        this.element.style.left = `${newX}px`;
+        this.element.style.top = `${newY}px`;
 
-        let needsSizeAdjustment = false;
+        this.effectSelect.value = effect;
+        this.handleEffectChange({ target: this.effectSelect });
 
-        // Update position (if provided)
-        if (newX !== undefined && newY !== undefined) {
-            this.element.style.left = newX + 'px';
-            this.element.style.top = newY + 'px';
-            this.checkBoxPosition();
-        }
+        this.mixSlider.value = mixValue * 100;
+        this.handleMixChange({ target: this.mixSlider });
 
-        // Handle expansion state first
-        if (isExpanded !== undefined) {
-            const currentlyExpanded = this.element.classList.contains('expanded');
-            if (currentlyExpanded !== isExpanded) {
-                console.log('Updating expansion state:', { wasExpanded: currentlyExpanded, willBeExpanded: isExpanded });
-                this.element.classList.toggle('expanded');
-                const controlsContainer = this.element.querySelector('.controls-container');
-                if (controlsContainer) {
-                    controlsContainer.style.opacity = isExpanded ? '1' : '0';
-                }
-                needsSizeAdjustment = true;
-            }
-        }
+        this.handleVolumeChange({ target: this.volumeSlider });
+        this.volumeSlider.value = volume * 100;
 
-        // Update effect (if provided)
-        if (effect !== undefined && this.effectSelect) {
-            // Only update if the effect has changed
-            if (this.effectSelect.value !== effect) {
-                this.effectSelect.value = effect;
-                needsSizeAdjustment = true;
-
-                if (effect !== 'none') {
-                    const initializeEffect = async () => {
-                        try {
-                            if (!this.audioPlayer.isPlaying === 'running') {
-                                await this.audioPlayer.play();
-                            }
-                            await this.audioPlayer.setupEffect(effect);
-                            
-                            // Update control visibility after effect is initialized
-                            if (this.effectSelect.value !== 'none') {
-                                const shouldShow = this.element.classList.contains('expanded');
-                                if (this.paramContainer) {
-                                    this.paramContainer.style.display = shouldShow ? 'block' : 'none';
-                                    this.paramLabel.style.display = shouldShow ? 'block' : 'none';
-                                }
-                                if (this.mixLabel) {
-                                    this.mixLabel.style.display = shouldShow ? 'block' : 'none';
-                                    this.mixSlider.style.display = shouldShow ? 'block' : 'none';
-                                }
-                                // Force size adjustment after effect initialization
-                                this.adjustBoxSize(effect);
-                            }
-                        } catch (error) {
-                            console.error(`Failed to initialize effect ${effect}:`, error);
-                        }
-                    };
-
-                    initializeEffect();
-                } else {
-                    if (this.paramContainer) {
-                        this.paramContainer.style.display = 'none';
-                        this.paramLabel.style.display = 'none';
-                    }
-                    if (this.mixLabel) {
-                        this.mixLabel.style.display = 'none';
-                        this.mixSlider.style.display = 'none';
-                    }
-                }
-            }
-        }
-
-        // Update mix value (if provided)
-        if (mixValue !== undefined && this.mixSlider) {
-            this.mixSlider.value = mixValue * 100;
-            if (this.effectSelect.value !== 'none') {
-                const inputEvent = new Event('input');
-                this.mixSlider.dispatchEvent(inputEvent);
-            }
-        }
-
-        // Update volume (if provided)
-        if (volume !== undefined && this.volumeSlider) {
-            this.volumeSlider.value = volume * 100;
-            const inputEvent = new Event('input');
-            this.volumeSlider.dispatchEvent(inputEvent);
-        }
-
-        // Adjust box size if needed and not waiting for effect initialization
-        if (needsSizeAdjustment && (!effect || effect === 'none')) {
-            const currentEffect = this.effectSelect.value;
-            const isCurrentlyExpanded = this.element.classList.contains('expanded');
-            console.log('Adjusting box size after state update:', {
-                effect: currentEffect,
-                isExpanded: isCurrentlyExpanded
-            });
-            this.adjustBoxSize(currentEffect);
-        }
+        this.handleBoxClick({ target: this.element });
     }
 }

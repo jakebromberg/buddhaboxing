@@ -51,7 +51,14 @@ socket.on('connect', () => {
   });
 
   // Re-join session if we reconnect
-  socket.emit('joinSession', { sessionId });
+  socket.emit('joinSession', { sessionId }, (response) => {
+    console.log('Join session response:', {
+      response,
+      sessionId,
+      socketId: socket.id,
+      timestamp: new Date().toISOString()
+    });
+  });
 });
 
 // Start session ping interval
@@ -145,6 +152,9 @@ let boxPositionsFromServer = null;
 let boxes = [];
 let syncEnabled = true;
 let boxesCreated = false;
+let isProcessingRemoteUpdate = false; // Flag to prevent update loops
+let lastUpdateTime = 0; // Track last update time
+const UPDATE_THROTTLE = 50; // Minimum time between updates in milliseconds
 
 // Debug: Log all available Native Web Audio effects
 console.log("Available Native Effects:", Object.keys(nativeEffects));
@@ -263,26 +273,35 @@ socket.on('boxUpdated', (data) => {
 
   const { boxId, newX, newY, effect, mixValue, volume, isExpanded, sessionId: senderSessionId, socketId: senderSocketId } = data;
 
-  if (!syncEnabled || !boxes[boxId]) {
-    console.log('Received box update but sync is disabled or box not found:', {
-      syncEnabled,
-      boxExists: !!boxes[boxId],
-      boxId,
-      senderSessionId,
-      senderSocketId,
-      mySessionId: sessionId,
-      mySocketId: socket.id,
-      socketConnected: socket.connected,
-      socketEventRegistered: true,
-      timestamp: new Date().toISOString()
-    });
-    return;
-  }
-  
   // Skip updates from our own socket
   if (senderSocketId === socket.id) {
     console.log('Skipping update from our own socket:', {
       senderSocketId,
+      mySocketId: socket.id,
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+
+  // Check if box exists
+  if (!boxes[boxId]) {
+    console.log('Box not found:', {
+      boxId,
+      availableBoxes: Object.keys(boxes),
+      boxesLength: Object.keys(boxes).length,
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+
+  // Check sync state
+  if (!syncEnabled) {
+    console.log('Sync is disabled:', {
+      syncEnabled,
+      boxId,
+      senderSessionId,
+      senderSocketId,
+      mySessionId: sessionId,
       mySocketId: socket.id,
       timestamp: new Date().toISOString()
     });
@@ -306,11 +325,10 @@ socket.on('boxUpdated', (data) => {
   
   const box = boxes[boxId];
   
-  // Temporarily disable syncing to avoid loops
-  const oldSync = syncEnabled;
-  syncEnabled = false;
-  
   try {
+    // Set flag to prevent update loops
+    isProcessingRemoteUpdate = true;
+    
     // Update box using the new method
     box.updateFromServer({ newX, newY, effect, mixValue, volume, isExpanded });
     console.log('Successfully updated box from server:', {
@@ -336,8 +354,8 @@ socket.on('boxUpdated', (data) => {
       timestamp: new Date().toISOString()
     });
   } finally {
-    // Re-enable syncing
-    syncEnabled = oldSync;
+    // Reset flag after update is complete
+    isProcessingRemoteUpdate = false;
   }
 });
 
@@ -347,11 +365,12 @@ function createBoxes() {
     Object.entries(audioFiles).forEach(([fileName, order]) => {
       const audioPlayer = new AudioPlayer(audioManager, fileName);
       const box = new Box(fileName, audioPlayer, sendBoxUpdate, order, audioManager);
-      boxes[order - 1] = box;  // Subtract 1 since order starts at 1
+      // Store box by its fileName instead of numeric index
+      boxes[fileName] = box;
 
       // Apply any saved positions from server if available
-      if (boxPositionsFromServer && boxPositionsFromServer[order - 1]) {
-        const boxState = boxPositionsFromServer[order - 1];
+      if (boxPositionsFromServer && boxPositionsFromServer[fileName]) {
+        const boxState = boxPositionsFromServer[fileName];
         // Ensure we pass all state properties, including isExpanded
         box.updateFromServer({
           newX: boxState.newX,
@@ -366,7 +385,8 @@ function createBoxes() {
 
     boxesCreated = true;
     console.log('Boxes created successfully:', {
-      boxCount: boxes.length,
+      boxCount: Object.keys(boxes).length,
+      boxNames: Object.keys(boxes),
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -376,8 +396,10 @@ function createBoxes() {
 }
 
 function sendBoxUpdate(update) {
-  if (!syncEnabled) {
-    console.log('Box update not sent - sync disabled:', {
+  if (!syncEnabled || isProcessingRemoteUpdate) {
+    console.log('Box update not sent - sync disabled or processing remote update:', {
+      syncEnabled,
+      isProcessingRemoteUpdate,
       sessionId,
       socketId: socket.id,
       timestamp: new Date().toISOString()
@@ -393,6 +415,13 @@ function sendBoxUpdate(update) {
     });
     return;
   }
+
+  // Throttle updates during drag operations
+  const now = Date.now();
+  if (now - lastUpdateTime < UPDATE_THROTTLE) {
+    return;
+  }
+  lastUpdateTime = now;
   
   const updateData = {
     sessionId,
@@ -401,9 +430,13 @@ function sendBoxUpdate(update) {
     timestamp: new Date().toISOString()
   };
   
-  // console.log('Sending box update to other clients:', {
-  //   ...updateData
-  // });
+  console.log('Sending box update:', {
+    updateData,
+    sessionId,
+    socketId: socket.id,
+    socketConnected: socket.connected,
+    timestamp: new Date().toISOString()
+  });
   
   // Send with acknowledgment
   socket.emit('updateBox', updateData, (error) => {
