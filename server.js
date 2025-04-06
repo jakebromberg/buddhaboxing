@@ -2,6 +2,27 @@ const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
 const path = require('path');
+const fs = require('fs');
+
+// Create log directory if it doesn't exist
+const logDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logDir)) {
+  fs.mkdirSync(logDir);
+}
+
+// Create a write stream for logging
+const logStream = fs.createWriteStream(
+  path.join(logDir, `server-${new Date().toISOString().replace(/[:.]/g, '-')}.log`),
+  { flags: 'a' }
+);
+
+// Custom logging function
+function log(message) {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] ${message}\n`;
+  console.log(message);
+  logStream.write(logMessage);
+}
 
 // Create Express app
 const app = express();
@@ -56,10 +77,7 @@ setInterval(() => {
 
 // Socket.IO connections
 io.on('connection', (socket) => {
-  console.log('New client connected:', {
-    socketId: socket.id,
-    timestamp: new Date().toISOString()
-  });
+  log(`New client connected: ${socket.id}`);
   
   let currentSession = null;
   
@@ -67,7 +85,7 @@ io.on('connection', (socket) => {
   socket.on('ping', ({ sessionId }) => {
     if (sessions[sessionId]) {
       sessionLastActivity[sessionId] = Date.now();
-      console.log(`Session ${sessionId} pinged at ${new Date().toISOString()}`);
+      log(`Session ${sessionId} pinged`);
     }
   });
 
@@ -76,21 +94,12 @@ io.on('connection', (socket) => {
     // Update last activity time when someone joins
     sessionLastActivity[sessionId] = Date.now();
     
-    console.log('Client joining session:', {
-      socketId: socket.id,
-      sessionId,
-      previousSession: currentSession,
-      timestamp: new Date().toISOString()
-    });
+    log(`Client joining session: ${socket.id}, ${sessionId}, previous: ${currentSession}`);
 
     // Leave previous session if any
     if (currentSession) {
       socket.leave(currentSession);
-      console.log('Left previous session:', {
-        socketId: socket.id,
-        previousSession: currentSession,
-        timestamp: new Date().toISOString()
-      });
+      log(`Left previous session: ${socket.id}, ${currentSession}`);
     }
 
     // Join new session
@@ -99,17 +108,11 @@ io.on('connection', (socket) => {
 
     // Get room info
     const room = io.sockets.adapter.rooms.get(sessionId);
-    console.log('Joined session:', {
-      socketId: socket.id,
-      sessionId,
-      roomSize: room ? room.size : 0,
-      roomMembers: room ? Array.from(room) : [],
-      timestamp: new Date().toISOString()
-    });
+    log(`Joined session: ${socket.id}, ${sessionId}, size: ${room ? room.size : 0}, members: ${room ? Array.from(room) : []}`);
 
     // Initialize session if needed
     if (!sessions[sessionId]) {
-      sessions[sessionId] = { boxes: [] };
+      sessions[sessionId] = { boxes: {} };
     }
 
     // Notify other clients in the session
@@ -119,23 +122,45 @@ io.on('connection', (socket) => {
       timestamp: new Date().toISOString()
     });
 
-    // Send initial state
-    socket.emit('initialState', {
-      boxes: sessions[sessionId].boxes,
-      sessionId,
-      socketId: socket.id,
-      timestamp: new Date().toISOString()
-    });
+    // Function to send initial state
+    const sendInitialState = () => {
+      socket.emit('initialState', {
+        boxes: sessions[sessionId].boxes,
+        sessionId,
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
+      });
 
-    // Send acknowledgment
-    if (callback) {
-      callback({ success: true, sessionId });
+      // Send acknowledgment
+      if (callback) {
+        callback({ success: true, sessionId });
+      }
+    };
+
+    // If there are other clients in the session, request current state from one of them
+    if (room && room.size > 1) {
+      const otherClients = Array.from(room).filter(id => id !== socket.id);
+      if (otherClients.length > 0) {
+        const randomClient = otherClients[Math.floor(Math.random() * otherClients.length)];
+        io.to(randomClient).emit('requestState', { sessionId }, (state) => {
+          if (state && state.boxes) {
+            sessions[sessionId].boxes = state.boxes;
+            log(`Received state from existing client: ${randomClient} -> ${socket.id}, ${sessionId}, boxes: ${Object.keys(state.boxes).length}`);
+          }
+          // Send initial state after receiving response from existing client
+          sendInitialState();
+        });
+        return; // Don't send initial state yet, wait for response
+      }
     }
+
+    // If no other clients or request failed, send initial state immediately
+    sendInitialState();
   });
   
   // Handle box updates
   socket.on('updateBox', (data, callback) => {
-    console.log('Received box update:', {
+    log(`Received box update: ${JSON.stringify({
       from: socket.id,
       sessionId: data.sessionId,
       boxId: data.boxId,
@@ -147,72 +172,62 @@ io.on('connection', (socket) => {
         mixValue: data.mixValue, 
         volume: data.volume,
         isExpanded: data.isExpanded 
-      },
-      timestamp: new Date().toISOString()
-    });
+      }
+    })}`);
     
     const { sessionId, boxId, newX, newY, effect, mixValue, volume, isExpanded } = data;
     
     // Ignore if no session ID
     if (!sessionId) {
-      console.log('Ignoring update - no session ID provided');
+      log('Ignoring update - no session ID provided');
       return;
     }
     
     // Verify socket is in the correct room
     const room = io.sockets.adapter.rooms.get(sessionId);
     if (!room || !room.has(socket.id)) {
-      console.log(`Socket ${socket.id} not in session ${sessionId}, rejoining...`);
+      log(`Socket ${socket.id} not in session ${sessionId}, rejoining...`);
       socket.join(sessionId);
       currentSession = sessionId;
     }
     
     // Initialize session if it doesn't exist
     if (!sessions[sessionId]) {
-      console.log(`Creating new session: ${sessionId}`);
-      sessions[sessionId] = { boxes: [] };
+      log(`Creating new session: ${sessionId}`);
+      sessions[sessionId] = { boxes: {} };
     }
     
-    // Initialize boxes array with enough capacity
-    while (sessions[sessionId].boxes.length <= boxId) {
-      sessions[sessionId].boxes.push({});
-    }
-    
-    // Update the box state using the same property names as the client
-    const box = sessions[sessionId].boxes[boxId] || {};
-    box.newX = newX;
-    box.newY = newY;
-    box.effect = effect;
-    box.mixValue = mixValue;
-    box.volume = volume;
-    box.isExpanded = isExpanded;
-    
-    // Store the updated box
-    sessions[sessionId].boxes[boxId] = box;
+    // Update the box state using the filename as key
+    sessions[sessionId].boxes[boxId] = {
+      newX,
+      newY,
+      effect,
+      mixValue,
+      volume,
+      isExpanded: isExpanded || false  // Ensure isExpanded is always defined
+    };
     
     // Get current room members
     const roomMembers = room ? Array.from(room) : [];
     
     // Log the update being broadcast
-    console.log('Broadcasting box update:', {
+    log(`Broadcasting box update: ${JSON.stringify({
       from: socket.id,
       to: roomMembers.filter(id => id !== socket.id), // Only other clients
       sessionId,
       boxId,
       roomMembers,
       roomSize: room ? room.size : 0,
-      update: { newX, newY, effect, mixValue, volume, isExpanded },
-      timestamp: new Date().toISOString()
-    });
+      update: { newX, newY, effect, mixValue, volume, isExpanded: isExpanded || false }
+    })}`);
     
     // Log room state
-    console.log('Room state before broadcast:', {
+    log(`Room state before broadcast: ${JSON.stringify({
       sessionId,
       allRooms: Array.from(io.sockets.adapter.rooms.keys()),
       roomMembers,
-      socketRooms: Array.from(socket.rooms),
-      timestamp: new Date().toISOString()
-    });
+      socketRooms: Array.from(socket.rooms)
+    })}`);
     
     // Broadcast to other clients in the same session
     socket.to(sessionId).emit('boxUpdated', {
@@ -224,27 +239,22 @@ io.on('connection', (socket) => {
       effect,
       mixValue,
       volume,
-      isExpanded,
+      isExpanded: isExpanded || false,  // Ensure isExpanded is always defined
       timestamp: new Date().toISOString()
     }, (error) => {
       if (error) {
-        console.error('Error broadcasting boxUpdated event:', error);
+        log(`Error broadcasting boxUpdated event: ${error}`);
       } else {
-        console.log('boxUpdated event acknowledged by recipients', {
-          isExpandedSent: isExpanded !== undefined,
-          isExpandedValue: isExpanded,
-          timestamp: new Date().toISOString()
-        });
+        log('boxUpdated event acknowledged by recipients');
       }
     });
     
     // Verify broadcast
-    console.log('Broadcast complete:', {
+    log(`Broadcast complete: ${JSON.stringify({
       sessionId,
       event: 'boxUpdated',
-      recipientCount: roomMembers.length - 1,
-      timestamp: new Date().toISOString()
-    });
+      recipientCount: roomMembers.length - 1
+    })}`);
 
     // Send acknowledgment
     if (callback) {
@@ -295,7 +305,7 @@ app.get('/list-sessions', async (req, res) => {
           ${activeSessionIds.map(sessionId => `
             <li class="session-item">
               <a class="session-link" href="/?session=${sessionId}">Session: ${sessionId}</a>
-              (${sessions[sessionId].boxes.length} boxes)
+              (${Object.keys(sessions[sessionId].boxes).length} boxes)
             </li>
           `).join('')}
         </ul>`
@@ -306,7 +316,7 @@ app.get('/list-sessions', async (req, res) => {
     
     res.send(html);
   } catch (error) {
-    console.error('Error serving sessions list:', error);
+    log(`Error serving sessions list: ${error}`);
     res.status(500).send('Error loading sessions list');
   }
 });

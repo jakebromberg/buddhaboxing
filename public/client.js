@@ -147,6 +147,36 @@ socket.on('initialState', (data) => {
   }
 });
 
+// Handle state request from server
+socket.on('requestState', ({ sessionId }, callback) => {
+  console.log('Received state request:', {
+    sessionId,
+    socketId: socket.id,
+    boxCount: Object.keys(boxes).length,
+    timestamp: new Date().toISOString()
+  });
+
+  // Collect current box states
+  const currentState = {
+    boxes: Object.entries(boxes).reduce((acc, [fileName, box]) => {
+      acc[fileName] = {
+        newX: box.element.style.left,
+        newY: box.element.style.top,
+        effect: box.effect,
+        mixValue: box.mixValue,
+        volume: box.volume,
+        isExpanded: box.isExpanded || false  // Ensure isExpanded is always defined
+      };
+      return acc;
+    }, {})
+  };
+
+  // Send state back to server
+  if (callback) {
+    callback(currentState);
+  }
+});
+
 // Tracking variables for multi-user functionality
 let boxPositionsFromServer = null;
 let boxes = [];
@@ -464,19 +494,19 @@ async function initializeApp() {
     // Initialize audio context
     await audioManager.initialize();
     
-    // Only create boxes if we have positions from server or after a timeout
-    if (boxPositionsFromServer || !socket.connected) {
+    // Only create boxes if we have positions from server or after a longer timeout
+    if (boxPositionsFromServer) {
       createBoxes();
       boxesCreated = true;
     } else {
-      // Set a timeout to create boxes with default positions if we don't get server data
+      // Set a longer timeout to create boxes with default positions if we don't get server data
       setTimeout(() => {
         if (!boxesCreated) {
-          console.log('Creating boxes with default positions - no server data received');
+          console.log('Creating boxes with default positions - no server data received after timeout');
           createBoxes();
           boxesCreated = true;
         }
-      }, 2000); // Wait 2 seconds for server data before falling back
+      }, 5000); // Wait 5 seconds for server data before falling back
     }
 
     // For Safari, set up a one-time click handler to initialize audio
