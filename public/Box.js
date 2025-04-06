@@ -30,6 +30,12 @@ export class Box {
     }
 
     createBoxElement() {
+        // Remove any existing box with the same ID
+        const existingBox = document.querySelector(`.box[boxId="${this.fileName}"]`);
+        if (existingBox) {
+            existingBox.remove();
+        }
+
         // Create box element
         this.element = document.createElement('div');
         this.element.classList.add('box');
@@ -54,7 +60,7 @@ export class Box {
         this.element.style.width = '120px';
 
         // Store reference to this box
-        this.element.boxId = this.fileName;
+        this.element.setAttribute('boxId', this.fileName);
 
         // Add box number
         const boxNumber = document.createElement('div');
@@ -522,13 +528,11 @@ export class Box {
                 this.element.classList.add('expanded');
                 const controlsContainer = this.element.querySelector('.controls-container');
                 controlsContainer.style.opacity = '1';
-            }
 
-            // Setup the effect
-            console.log('Setting up effect:', effectName);
-            await this.audioPlayer.setupEffect(effectName);
+                // Setup the effect only if it's not 'none'
+                console.log('Setting up effect:', effectName);
+                await this.audioPlayer.setupEffect(effectName);
 
-            if (effectName !== 'none') {
                 // Wait a small amount of time to ensure effect is fully initialized
                 console.log('Waiting for effect initialization...');
                 await new Promise(resolve => setTimeout(resolve, 50));
@@ -959,12 +963,28 @@ export class Box {
         }
     }
 
-    updateFromServer({ newX, newY, effect, mixValue, volume, isExpanded }) {
+    async updateFromServer({ newX, newY, effect, mixValue, volume, isExpanded }) {
         this.element.style.left = `${newX}px`;
         this.element.style.top = `${newY}px`;
 
-        this.effectSelect.value = effect;
-        this.handleEffectChange({ target: this.effectSelect });
+        // Only update effect if it's different from current value
+        if (this.effectSelect.value !== effect) {
+            this.effectSelect.value = effect;
+            // Don't call handleEffectChange here as it will trigger another update
+            // Just update the UI state directly
+            this.element.classList.toggle('expanded', isExpanded);
+            
+            // Initialize the effect before adjusting box size
+            try {
+                await this.audioPlayer.setupEffect(effect);
+                this.adjustBoxSize(effect);
+            } catch (error) {
+                console.error(`Failed to setup effect ${effect}:`, error);
+                // If effect setup fails, just set to none
+                this.effectSelect.value = 'none';
+                this.adjustBoxSize('none');
+            }
+        }
 
         this.mixSlider.value = mixValue * 100;
         this.handleMixChange({ target: this.mixSlider });
@@ -972,6 +992,12 @@ export class Box {
         this.handleVolumeChange({ target: this.volumeSlider });
         this.volumeSlider.value = volume * 100;
 
-        this.handleBoxClick({ target: this.element });
+        // Only handle click if expansion state changed
+        if (this.element.classList.contains('expanded') !== isExpanded) {
+            this.handleBoxClick({ target: this.element });
+        }
+
+        // Check box position after updating position
+        this.checkBoxPosition();
     }
 }
