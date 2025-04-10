@@ -1,6 +1,6 @@
 import AudioEngine from './AudioEngine.js';
 import { Box } from './Box.js';
-import { nativeEffects } from './nativeEffects.js';
+import { nativeEffects } from './effects/index.js';
 import AudioPlayer from './AudioPlayer.js';
 
 // Create audio manager instance

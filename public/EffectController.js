@@ -1,5 +1,5 @@
 import AudioEngine from './AudioEngine.js';
-import { createEffect } from './nativeEffects.js';
+import { createEffect } from './effects/index.js';
 
 // Box state management
 export class EffectController {

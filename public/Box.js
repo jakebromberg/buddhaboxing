@@ -546,7 +546,7 @@ export class Box {
                     this.paramContainer.style.display = 'block';
                     this.paramLabel.style.display = 'block';
                     // Create parameter sliders for the selected effect
-                    this.createParamSliders(this.element, effectName);
+                    this.createParamSliders(this, effectName);
                 }
                 if (this.mixLabel) {
                     console.log('Setting up mix controls');
@@ -990,6 +990,20 @@ export class Box {
             try {
                 await this.audioPlayer.setupEffect(effect);
                 this.adjustBoxSize(effect);
+                // Create parameter sliders for the effect
+                this.createParamSliders(this, effect);
+                
+                // Show parameter controls if effect is not 'none'
+                if (effect !== 'none') {
+                    if (this.paramContainer) {
+                        this.paramContainer.style.display = 'block';
+                        this.paramLabel.style.display = 'block';
+                    }
+                    if (this.mixLabel) {
+                        this.mixLabel.style.display = 'block';
+                        this.mixSlider.style.display = 'block';
+                    }
+                }
             } catch (error) {
                 console.error(`Failed to setup effect ${effect}:`, error);
                 // If effect setup fails, just set to none
