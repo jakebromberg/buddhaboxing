@@ -7,16 +7,7 @@ class AudioEngine {
   constructor() {
     this.isInitialized = false;
     this.isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-    console.log('Creating new AudioContext...');
-    this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    console.log('AudioContext created, initial state:', this.#audioCtx.state);
-    
-    this.#audioCtx.onstatechange = () => {
-      console.log('Audio context state changed to:', this.#audioCtx.state);
-      this.#stateChangeCallbacks.forEach(callback => callback(this.#audioCtx.state));
-    };
-
-    console.log(`Safari detected: ${this.isSafari}`);
+    console.log('AudioEngine created, waiting for user interaction before creating AudioContext');
   }
 
   // Add a callback for state changes
@@ -34,29 +25,23 @@ class AudioEngine {
   // Initialize the audio context
   async initialize() {
     console.log('Initializing audio context...');
-    console.log('Current state:', this.#audioCtx ? this.#audioCtx.state : 'not created');
-    console.log('Is initialized:', this.isInitialized);
-    console.log('Is ready:', this.isReady());
     
     if (this.isInitialized && this.isReady()) {
       console.log('Audio context already initialized and running');
       return;
     }
 
-    // For Safari, we need to wait for user interaction before resuming
-    if (this.isSafari) {
-      console.log('Safari detected, waiting for user interaction before resuming');
+    // Create audio context only after user interaction
+    if (!this.#audioCtx) {
       await this.waitForUserInteraction();
-    } else {
-      // For other browsers, try to resume directly
-      try {
-        console.log('Attempting to resume audio context...');
-        await this.#audioCtx.resume();
-        console.log('Audio context resumed successfully, new state:', this.#audioCtx.state);
-      } catch (e) {
-        console.warn('Audio context resume failed:', e);
-        await this.waitForUserInteraction();
-      }
+      console.log('Creating new AudioContext after user interaction...');
+      this.#audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      console.log('AudioContext created, initial state:', this.#audioCtx.state);
+      
+      this.#audioCtx.onstatechange = () => {
+        console.log('Audio context state changed to:', this.#audioCtx.state);
+        this.#stateChangeCallbacks.forEach(callback => callback(this.#audioCtx.state));
+      };
     }
 
     this.isInitialized = true;
