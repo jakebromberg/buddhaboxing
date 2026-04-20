@@ -319,6 +319,20 @@ export class Box {
         return boxColors[colorIndex];
     }
 
+    broadcastState(overrides = {}) {
+        if (!this.sendBoxUpdate) return;
+        this.sendBoxUpdate({
+            boxId: this.fileName,
+            newX: parseInt(this.element.style.left),
+            newY: parseInt(this.element.style.top),
+            effect: this.effectSelect.value,
+            mixValue: this.mixSlider.value / 100,
+            volume: this.volumeSlider.value / 100,
+            isExpanded: this.element.classList.contains('expanded'),
+            ...overrides
+        });
+    }
+
     debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -378,21 +392,7 @@ export class Box {
         }
 
         // Send position update
-        if (this.sendBoxUpdate) {
-            this.sendBoxUpdate({
-                boxId: this.fileName,
-                newX: newX,
-                newY: newY,
-                effect: this.effectSelect.value,
-                mixValue: this.mixSlider.value / 100,
-                volume: this.volumeSlider.value / 100
-            });
-        } else {
-            console.warn('Box update function not available:', {
-                boxId: this.fileName,
-                timestamp: new Date().toISOString()
-            });
-        }
+        this.broadcastState({ newX, newY });
 
         // Check if box is in playable area
         debouncedCheckPosition();
@@ -486,20 +486,7 @@ export class Box {
         }
 
         // Send state update to sync expansion state
-        if (this.sendBoxUpdate) {
-            const currentX = parseInt(this.element.style.left);
-            const currentY = parseInt(this.element.style.top);
-
-            this.sendBoxUpdate({
-                boxId: this.fileName,
-                newX: currentX,
-                newY: currentY,
-                effect: this.effectSelect.value,
-                mixValue: this.mixSlider.value / 100,
-                volume: this.volumeSlider.value / 100,
-                isExpanded: !isExpanded  // Send the new expansion state
-            });
-        }
+        this.broadcastState({ isExpanded: !isExpanded });
 
         console.log('Box click handled:', {
             wasExpanded: isExpanded,
@@ -512,8 +499,6 @@ export class Box {
 
     async handleEffectChange(e) {
         const effectName = e.target.value;
-        const currentX = this.element.style.left;
-        const currentY = this.element.style.top;
 
         console.log('Effect change started:', {
             effectName,
@@ -555,17 +540,7 @@ export class Box {
                 }
 
                 // Send another update after expansion is complete
-                if (this.sendBoxUpdate) {
-                    this.sendBoxUpdate({
-                        boxId: this.fileName,
-                        newX: currentX,
-                        newY: currentY,
-                        effect: effectName,
-                        mixValue: this.mixSlider.value / 100,
-                        volume: this.volumeSlider.value / 100,
-                        isExpanded: true
-                    });
-                }
+                this.broadcastState({ effect: effectName, isExpanded: true });
             } else {
                 // Handle 'none' effect case
                 console.log('Handling none effect case');
@@ -584,17 +559,7 @@ export class Box {
                 this.element.style.height = '40px';
 
                 // Send update for 'none' effect
-                if (this.sendBoxUpdate) {
-                    this.sendBoxUpdate({
-                        boxId: this.fileName,
-                        newX: currentX,
-                        newY: currentY,
-                        effect: effectName,
-                        mixValue: this.mixSlider.value / 100,
-                        volume: this.volumeSlider.value / 100,
-                        isExpanded: false
-                    });
-                }
+                this.broadcastState({ effect: effectName, isExpanded: false });
             }
         } catch (error) {
             console.error(`Failed to setup effect ${effectName}:`, error);
@@ -610,28 +575,7 @@ export class Box {
     handleMixChange(e) {
         const mixValue = e.target.value / 100;
 
-        // Send mix update
-        if (this.sendBoxUpdate) {
-            console.log('Box sending mix update:', {
-                boxId: this.fileName,
-                mixValue,
-                timestamp: new Date().toISOString()
-            });
-
-            // Get current position from style
-            const currentX = parseInt(this.element.style.left);
-            const currentY = parseInt(this.element.style.top);
-
-            this.sendBoxUpdate({
-                boxId: this.fileName,
-                newX: currentX,
-                newY: currentY,
-                effect: this.effectSelect.value,
-                mixValue: mixValue,
-                volume: this.volumeSlider.value / 100,
-                isExpanded: this.element.classList.contains('expanded')
-            });
-        }
+        this.broadcastState({ mixValue });
 
         if (this.effectSelect.value !== 'none') {
             this.audioPlayer.setMix(mixValue);
@@ -641,28 +585,7 @@ export class Box {
     handleVolumeChange(e) {
         const volume = e.target.value / 100;
 
-        // Send volume update
-        if (this.sendBoxUpdate) {
-            console.log('Box sending volume update:', {
-                boxId: this.fileName,
-                volume,
-                timestamp: new Date().toISOString()
-            });
-
-            // Get current position from style
-            const currentX = parseInt(this.element.style.left);
-            const currentY = parseInt(this.element.style.top);
-
-            this.sendBoxUpdate({
-                boxId: this.fileName,
-                newX: currentX,
-                newY: currentY,
-                effect: this.effectSelect.value,
-                mixValue: this.mixSlider.value / 100,
-                volume: volume,
-                isExpanded: this.element.classList.contains('expanded')
-            });
-        }
+        this.broadcastState({ volume });
 
         this.audioPlayer.setVolume(volume);
     }
@@ -938,17 +861,7 @@ export class Box {
             this.stop();
         }
 
-        // Send update with current position and expanded state
-        if (this.sendBoxUpdate) {
-            this.sendBoxUpdate({
-                newX: parseInt(this.element.style.left),
-                newY: parseInt(this.element.style.top),
-                effect: this.effectSelect.value,
-                mixValue: this.mixSlider.value / 100,
-                volume: this.volumeSlider.value / 100,
-                isExpanded: this.element.classList.contains('expanded')
-            });
-        }
+        this.broadcastState();
     }
 
     async startAudio() {

@@ -1,5 +1,5 @@
 import AudioEngine from './AudioEngine.js';
-import { createEffect } from './nativeEffects.js';
+import { createEffect } from './effects/index.js';
 
 // Box state management
 export class EffectController {
@@ -143,18 +143,27 @@ export class EffectController {
     this.#mixerNode.connect(audioCtx.destination);
   }
   
+  #disconnectNode(node, name) {
+    if (!node) return;
+    try {
+      node.disconnect();
+    } catch (e) {
+      console.warn(`Error disconnecting ${name}:`, e);
+    }
+  }
+
   cleanupEffect() {
     if (this.nodes.effect) {
       try {
         // Disconnect effect nodes
         this.nodes.inputGain.disconnect();
         this.nodes.inputGain.connect(this.nodes.analyzer);
-        
+
         // Clean up effect instance
         if (this.effect && this.effect.cleanup) {
           this.effect.cleanup();
         }
-        
+
         this.effect = null;
         this.nodes.effect = null;
       } catch (error) {
@@ -167,48 +176,14 @@ export class EffectController {
         if (this.isPlaying) {
           this.#sourceNode.stop();
         }
-        this.#sourceNode.disconnect();
-        this.#sourceNode = null;
       } catch (e) {
         console.warn('Error stopping source:', e);
       }
     }
 
-    if (this.#gainNode) {
-      try {
-        this.#gainNode.disconnect();
-        this.#gainNode = null;
-      } catch (e) {
-        console.warn('Error disconnecting gain node:', e);
-      }
-    }
-
-    if (this.#mixerNode) {
-      try {
-        this.#mixerNode.disconnect();
-        this.#mixerNode = null;
-      } catch (e) {
-        console.warn('Error disconnecting mixer node:', e);
-      }
-    }
-
-    if (this.#dryNode) {
-      try {
-        this.#dryNode.disconnect();
-        this.#dryNode = null;
-      } catch (e) {
-        console.warn('Error disconnecting dry node:', e);
-      }
-    }
-
-    if (this.#wetNode) {
-      try {
-        this.#wetNode.disconnect();
-        this.#wetNode = null;
-      } catch (e) {
-        console.warn('Error disconnecting wet node:', e);
-      }
-    }
+    [this.#sourceNode, this.#gainNode, this.#mixerNode, this.#dryNode, this.#wetNode]
+      .forEach(node => this.#disconnectNode(node, 'node'));
+    this.#sourceNode = this.#gainNode = this.#mixerNode = this.#dryNode = this.#wetNode = null;
 
     this.effectInstance = null;
   }

@@ -1,6 +1,6 @@
 import AudioEngine from './AudioEngine.js';
 import { Box } from './Box.js';
-import { nativeEffects } from './nativeEffects.js';
+import { nativeEffects } from './effects/index.js';
 import AudioPlayer from './AudioPlayer.js';
 
 // Create audio manager instance
@@ -191,19 +191,6 @@ console.log("Available Native Effects:", Object.keys(nativeEffects));
 
 // Current active box for debugging
 let activeBoxForDebug = null;
-
-// Box colors (9 distinct colors)
-const boxColors = [
-  '#FF6B6B', // red
-  '#4ECDC4', // teal
-  '#FFD166', // yellow
-  '#6B5B95', // purple
-  '#88D8B0', // green
-  '#FF8C94', // pink
-  '#5D98D2', // blue
-  '#E6AA68', // orange
-  '#A5AAA3'  // gray
-];
 
 // Create boxes immediately
 createSessionDisplay();
