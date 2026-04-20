@@ -319,6 +319,25 @@ export class Box {
         return boxColors[colorIndex];
     }
 
+    setEffectControlsVisible(visible) {
+        const display = visible ? 'block' : 'none';
+        if (this.paramContainer) {
+            this.paramContainer.style.display = display;
+            this.paramLabel.style.display = display;
+        }
+        if (this.mixLabel) {
+            this.mixLabel.style.display = display;
+            this.mixSlider.style.display = display;
+        }
+    }
+
+    collapseBox() {
+        this.element.classList.remove('expanded');
+        const controlsContainer = this.element.querySelector('.controls-container');
+        controlsContainer.style.opacity = '0';
+        this.element.style.height = '40px';
+    }
+
     broadcastState(overrides = {}) {
         if (!this.sendBoxUpdate) return;
         this.sendBoxUpdate({
@@ -415,9 +434,7 @@ export class Box {
 
                 // Only collapse if the box wasn't expanded before dragging
                 if (!this.element.classList.contains('expanded')) {
-                    const controlsContainer = this.element.querySelector('.controls-container');
-                    controlsContainer.style.opacity = '0';
-                    this.element.style.height = '40px';
+                    this.collapseBox();
                 }
             }
 
@@ -475,14 +492,7 @@ export class Box {
 
         // If we have an effect, ensure controls are visible when expanded
         if (currentEffect !== 'none' && !isExpanded) {
-            if (this.paramContainer) {
-                this.paramContainer.style.display = 'block';
-                this.paramLabel.style.display = 'block';
-            }
-            if (this.mixLabel) {
-                this.mixLabel.style.display = 'block';
-                this.mixSlider.style.display = 'block';
-            }
+            this.setEffectControlsVisible(true);
         }
 
         // Send state update to sync expansion state
@@ -526,17 +536,9 @@ export class Box {
                 console.log('Adjusting box size for effect:', effectName);
                 this.adjustBoxSize(effectName);
 
+                this.setEffectControlsVisible(true);
                 if (this.paramContainer) {
-                    console.log('Setting up parameter controls');
-                    this.paramContainer.style.display = 'block';
-                    this.paramLabel.style.display = 'block';
-                    // Create parameter sliders for the selected effect
                     this.createParamSliders(this.element, effectName);
-                }
-                if (this.mixLabel) {
-                    console.log('Setting up mix controls');
-                    this.mixLabel.style.display = 'block';
-                    this.mixSlider.style.display = 'block';
                 }
 
                 // Send another update after expansion is complete
@@ -544,19 +546,8 @@ export class Box {
             } else {
                 // Handle 'none' effect case
                 console.log('Handling none effect case');
-                this.element.classList.remove('expanded');
-                const controlsContainer = this.element.querySelector('.controls-container');
-                controlsContainer.style.opacity = '0';
-
-                if (this.paramContainer) {
-                    this.paramContainer.style.display = 'none';
-                    this.paramLabel.style.display = 'none';
-                }
-                if (this.mixLabel) {
-                    this.mixLabel.style.display = 'none';
-                    this.mixSlider.style.display = 'none';
-                }
-                this.element.style.height = '40px';
+                this.collapseBox();
+                this.setEffectControlsVisible(false);
 
                 // Send update for 'none' effect
                 this.broadcastState({ effect: effectName, isExpanded: false });
@@ -565,10 +556,7 @@ export class Box {
             console.error(`Failed to setup effect ${effectName}:`, error);
             // Reset to no effect on error
             this.effectSelect.value = 'none';
-            this.element.classList.remove('expanded');
-            const controlsContainer = this.element.querySelector('.controls-container');
-            controlsContainer.style.opacity = '0';
-            this.element.style.height = '40px';
+            this.collapseBox();
         }
     }
 
@@ -725,19 +713,8 @@ export class Box {
         // If effect is "none", just set the base height
         if (effectName === 'none') {
             console.log('Setting base height for none effect');
-            if (this.element.classList.contains('expanded')) {
-                this.element.style.height = '180px';
-            } else {
-                this.element.style.height = '40px';
-            }
-            if (this.paramContainer) {
-                this.paramContainer.style.display = 'none';
-                this.paramLabel.style.display = 'none';
-            }
-            if (this.mixLabel) {
-                this.mixLabel.style.display = 'none';
-                this.mixSlider.style.display = 'none';
-            }
+            this.element.style.height = this.element.classList.contains('expanded') ? '180px' : '40px';
+            this.setEffectControlsVisible(false);
             return;
         }
 
@@ -788,26 +765,16 @@ export class Box {
         });
 
         // Show/hide controls based on expanded state
-        if (this.element.classList.contains('expanded')) {
-            this.paramLabel.style.display = 'block';
-            this.paramContainer.style.display = 'block';
-            this.mixLabel.style.display = 'block';
-            this.mixSlider.style.display = 'block';
+        const isExpanded = this.element.classList.contains('expanded');
+        this.setEffectControlsVisible(isExpanded);
 
-            // Force a reflow to ensure the transition works
-            this.element.offsetHeight;
+        // Force a reflow to ensure the transition works
+        this.element.offsetHeight;
 
+        if (isExpanded) {
             console.log('Setting expanded height:', totalHeight);
             this.element.style.height = `${totalHeight}px`;
         } else {
-            this.paramLabel.style.display = 'none';
-            this.paramContainer.style.display = 'none';
-            this.mixLabel.style.display = 'none';
-            this.mixSlider.style.display = 'none';
-
-            // Force a reflow to ensure the transition works
-            this.element.offsetHeight;
-
             console.log('Setting collapsed height');
             this.element.style.height = '40px';
         }

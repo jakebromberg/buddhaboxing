@@ -17,19 +17,6 @@ class AudioPlayer {
         this.#effectController = new EffectController(null, fileName, audioManager);
     }
 
-    // AudioManager proxy methods
-    #isReady() {
-        return this.#audioManager.isReady();
-    }
-
-    async #initialize() {
-        return this.#audioManager.initialize();
-    }
-
-    #getState() {
-        return this.#audioManager.getState();
-    }
-
     get isPlaying() {
         return this.#isPlaying;
     }
@@ -96,8 +83,8 @@ class AudioPlayer {
 
     async play() {
         console.log(`Attempting to play audio for ${this.#fileName}`, {
-            isReady: this.#isReady(),
-            state: this.#getState(),
+            isReady: this.#audioManager.isReady(),
+            state: this.#audioManager.getState(),
             hasSource: !!this.#source,
             hasGainNode: !!this.#gainNode,
             hasBuffer: this.#audioBuffers.has(this.#fileName),
@@ -112,9 +99,9 @@ class AudioPlayer {
 
         try {
             // Ensure audio context is ready
-            if (!this.#isReady()) {
+            if (!this.#audioManager.isReady()) {
                 console.log('Audio not ready, initializing...');
-                await this.#initialize();
+                await this.#audioManager.initialize();
             }
 
             // Ensure we have the audio buffer loaded

@@ -161,27 +161,14 @@ io.on('connection', (socket) => {
   // Handle box updates
   socket.on('updateBox', (data, callback) => {
     const { sessionId, boxId, newX, newY, effect, mixValue, volume, isExpanded } = data;
-    
+
+    const boxState = { newX, newY, effect, mixValue, volume, isExpanded: isExpanded || false };
+
     // Update the box state in the session
-    sessions[sessionId].boxes[boxId] = {
-        newX,
-        newY,
-        effect,
-        mixValue,
-        volume,
-        isExpanded: isExpanded || false  // Ensure isExpanded is always defined
-    };
+    sessions[sessionId].boxes[boxId] = boxState;
 
     // Broadcast the update to other clients in the session
-    socket.to(sessionId).emit('boxUpdated', {
-        boxId,
-        newX,
-        newY,
-        effect,
-        mixValue,
-        volume,
-        isExpanded: isExpanded || false  // Ensure isExpanded is always defined
-    });
+    socket.to(sessionId).emit('boxUpdated', { boxId, ...boxState });
 
     if (callback) {
         callback(null);
